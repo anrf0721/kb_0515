@@ -58,7 +58,7 @@ class MainGraphRunner:
         self.builder = StateGraph(state_schema=ImportGraphState)
         self.add_nodes()
         self.add_edges()
-        # 单例,避免重复创建
+        # 单例,避免重复创建;第二个目的:可以懒加载,延迟加载,节省开销
         self.graph = None
 
     def add_nodes(self):
