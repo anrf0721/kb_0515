@@ -135,7 +135,7 @@ class NodePDFToMD(NodeBase):
             raise Exception(f"上传文件请求失败,状态码:{response.status_code},错误信息:{response.text}")
         logger.info(f"上传文件请求成功,结果:{response}")
         result = response.json()
-        if result["code"] != 0:
+        if result.get("code",1) != 0:
             logger.error(f"上传文件数据返回失败,错误信息:{result['msg']}")
             raise Exception(f"上传文件数据返回失败,错误信息:{result['msg']}")
         logger.info(f"上传文件数据返回成功,结果:{result}")

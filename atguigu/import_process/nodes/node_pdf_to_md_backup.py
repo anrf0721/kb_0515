@@ -114,7 +114,7 @@ class NodePDFToMD(NodeBase):
                     raise Exception(f"请求失败,状态码:{res.status_code},错误信息:{res.text}")
                 result = res.json()
                 logger.info(f"请求数据返回成功,结果:{result}")
-                if result.get("code",1):
+                if result.get("code",1) != 0:
                     logger.error(f"请求数据返回失败,错误信息:{result['msg']}")
                     raise Exception(f"请求数据返回失败,错误信息:{result['msg']}")
                 data = result.get("data",{}).get('extract_result',[])[0]
@@ -155,6 +155,7 @@ class NodePDFToMD(NodeBase):
         # 解压zip文件
 
         unzip_file_path = local_dir_obj / f'{pdf_path_obj.stem}'
+        # 先删除文件,以防重复解压,保持幂等性(重复多少次结果都不变)
         shutil.rmtree(unzip_file_path, ignore_errors=True)
         if not unzip_file_path.exists():
             unzip_file_path.mkdir(parents=True,exist_ok=True)
