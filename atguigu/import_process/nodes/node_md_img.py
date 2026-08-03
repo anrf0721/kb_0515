@@ -122,18 +122,16 @@ class NodeMDImg(NodeBase):
 
         with open(md_path_obj, 'r', encoding='utf-8') as f:
             md_content = f.read()
-            # if not md_content:
-            #     logger.error('文件内容为空')
-            #     raise Exception('文件内容为空')
+            if not md_content:
+                logger.error('文件内容为空')
+
             image_path_obj = md_path_obj.parent / 'images'
-            # if not image_path_obj.exists():
-            #     logger.error('图片不存在')
-            #     raise Exception('图片不存在')
-            #
+            if not image_path_obj.exists():
+                logger.error('图片目录不存在')
+
             image_name_list = os.listdir(image_path_obj)
-            # if not image_name_list:
-            #     logger.error('图片目录不存在')
-            #     raise Exception('图片目录不存在')
+            if not image_name_list:
+                logger.error('图片目录下图片不存在')
 
         logger.info(f'图片目录下文件数量:{len(image_name_list)}')
         # logger.info((f'图片内容:{md_content}'))
