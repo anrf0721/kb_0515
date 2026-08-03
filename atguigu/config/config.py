@@ -16,7 +16,7 @@ class MineruConfig :
     mineru_token = os.getenv('MINERU_TOKEN')
     mineru_base_url = os.getenv('MINERU_BASE_URL')
 
-class LLMconfig:
+class LLMConfig:
     openai_api_key = os.getenv('OPENAI_API_KEY')
     openai_base_url = os.getenv('OPENAI_BASE_URL')
     # 默认 LLM 模型
