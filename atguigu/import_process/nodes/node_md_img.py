@@ -8,9 +8,12 @@ import os
 import re
 import time
 from collections import deque
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from langchain.chat_models import init_chat_model
+from minio.deleteobjects import DeleteObject
 
 from atguigu.config.config import *
 from atguigu.import_process.base import *
@@ -18,6 +21,7 @@ from atguigu.import_process.state import *
 from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.logger import *
 from atguigu.tool.json_dumps_tool import *
+from atguigu.tool.minio_client_tool import *
 
 
 class NodeMDImg(NodeBase):
@@ -30,9 +34,54 @@ class NodeMDImg(NodeBase):
     def process(self, state: ImportGraphState):
         image_name_list, image_path_obj, md_content,md_path = NodeMDImg.read_image_obj(state)
 
-        image_summary_list1 = self.image_summary_list(image_name_list, image_path_obj, md_content,md_path)
+        image_summary_with_context_list = self.image_summary_list(image_name_list, image_path_obj, md_content,md_path)
 
-        return {'md_path': md_path, 'md_content': md_content}
+        md_content, new_md_path = self.get_minio_url(image_summary_with_context_list, md_content, md_path)
+
+        return {'md_path': str(new_md_path), 'md_content': md_content}
+
+    def get_minio_url(self, image_summary_with_context_list: list[Any], md_content: str | Any,
+                      md_path) -> tuple[Path, str]:
+        minio_client = get_client()
+        upload_dir = MinIoConfig.minio_img_dir
+
+        delete_image_obj = minio_client.list_objects(bucket_name=MinIoConfig.minio_bucket_name, prefix=upload_dir,
+                                                     recursive=True)
+        delete_image_obj_list = [DeleteObject(i.object_name) for i in delete_image_obj]
+        errors = minio_client.remove_objects(bucket_name=MinIoConfig.minio_bucket_name,
+                                             delete_object_list=delete_image_obj_list)
+        logger.info(f"删除文件数: {len(delete_image_obj_list)}")
+        for error in errors:
+            logger.error(error)
+
+        image_summary_with_context_and_url_list = []
+        for image_with_context in image_summary_with_context_list:
+            minio_client.fput_object(bucket_name=MinIoConfig.minio_bucket_name,
+                                     object_name=upload_dir + '/' + image_with_context['image_name'],
+                                     file_path=image_with_context['image_path'])
+
+            url = minio_client.presigned_get_object(
+                bucket_name=MinIoConfig.minio_bucket_name,
+                object_name=str(upload_dir + '/' + image_with_context['image_name']),
+                expires=timedelta(days=7)  # 链接有效期
+            )
+
+            image_summary_with_context_and_url_list.append(
+                {
+                    **image_with_context,
+                    'url': url
+                }
+            )
+
+            logger.info(f'图片上传成功:{url}')
+
+        for image_url_context in image_summary_with_context_and_url_list:
+            patten = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_url_context['image_name']) + r"\)")
+            md_content = patten.sub(f"![{image_url_context['summary']}]({image_url_context['url']})", md_content)
+            new_md_path = Path(md_path).parent / str(Path(md_path).stem + '_new.md')
+            with open(new_md_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+        return md_content, new_md_path
 
     @classmethod
     def image_summary_list(cls, image_name_list: list[str], image_path_obj: str, md_content,md_path):

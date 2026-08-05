@@ -3,6 +3,7 @@ name = "kb-0515"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "chromadb>=1.5.9",
     "colorlog>=6.12.0",
     "fastapi>=0.141.1",
     "grandalf>=0.8",
@@ -12,6 +13,7 @@ dependencies = [
     "langgraph>=1.2.10",
     "minio>=7.2.20",
     "numpy>=2.5.1",
+    "onnxruntime>=1.28.0",
     "pymongo>=4.17.0",
     "python-dotenv>=1.2.2",
 ]

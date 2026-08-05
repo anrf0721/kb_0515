@@ -11,12 +11,15 @@ from collections import deque
 from pathlib import Path
 
 from langchain.chat_models import init_chat_model
+from minio.deleteobjects import DeleteObject, DeleteRequest
+from openai.types import upload
 
 from atguigu.config.config import *
 from atguigu.import_process.base import *
 from atguigu.import_process.state import *
 from atguigu.tool.logger import *
 from atguigu.tool.json_dumps_tool import *
+from atguigu.tool.minio_client_tool import get_client
 
 
 class NodeMDImg(NodeBase):
@@ -124,10 +127,49 @@ class NodeMDImg(NodeBase):
         # 【改动6】logger 移到外层 for 外部，只打一次
         logger.info(f'图片处理结果:{json_format(image_context_summary_list)}')
 
+        # 配置minio客户端连接和目录
+        minio_client = get_client()
+        upload_dir = MinIoConfig.minio_img_dir
 
+        # 幂等性删除目录下旧图片
+        old_image_list = minio_client.list_objects(bucket_name=MinIoConfig.minio_bucket_name, prefix=upload_dir,
+                                                   recursive=True)
+        # 不能写,否则会耗尽
+        # logger.info(old_image_list)
+        # for i in list(old_image_list):
+        #     logger.info(i.object_name)
+        delete_image_list = [DeleteObject(i.object_name) for i in old_image_list]
 
+        logger.info(f"待删除文件数: {len(delete_image_list)}")
+        errors = minio_client.remove_objects(bucket_name=MinIoConfig.minio_bucket_name,
+                                             delete_object_list=delete_image_list)
 
-        return {'md_path' : md_path,'md_content': md_content}
+        for error in errors:
+            logger.error(error)
+
+        # 上传图片
+        image_context_summary_and_url_list = []
+        for image_list in image_context_summary_list:
+            minio_client.fput_object(bucket_name=MinIoConfig.minio_bucket_name,
+                                     object_name=upload_dir + '/' + image_list.get('image_name',''),
+                                     file_path=image_list.get('image_path',''))
+
+            url = f'http://{MinIoConfig.minio_endpoint}/{MinIoConfig.minio_bucket_name}/{upload_dir}/{image_list.get("image_name", '')}'
+            logger.info(f'图片上传成功:{url}')
+            image_context_summary_and_url_list.append(
+                {
+                    **image_list,
+                    'url': url
+                }
+            )
+        for image_with_summary in image_context_summary_and_url_list:
+            pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_with_summary.get('image_name', '')) + r"\)")
+            md_content = pattern.sub(lambda m: f'![{image_with_summary.get("summary", "")}]({image_with_summary.get("url", "")})', md_content)
+            new_md_path_obj = md_path_obj.parent / str(md_path_obj.stem + '_new.md')
+            with open(new_md_path_obj, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+
+        return {'md_path' : str(new_md_path_obj),'md_content': md_content}
 
 if __name__ == '__main__':
     node = NodeMDImg()
@@ -135,4 +177,7 @@ if __name__ == '__main__':
         'md_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册\hak180产品安全手册.md'
     }
     res = node(init_state)
-    logger.info(json_format(res))
+    # logger.info(json_format(res))
+
+
+
