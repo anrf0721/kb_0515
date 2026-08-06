@@ -175,6 +175,7 @@ if __name__ == '__main__':
     node = NodeMDImg()
     init_state = {
         'md_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册\hak180产品安全手册.md'
+
     }
     res = node(init_state)
     # logger.info(json_format(res))

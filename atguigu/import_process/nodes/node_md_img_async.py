@@ -68,9 +68,9 @@ class NodeMDImg(NodeBase):
 
             image_name_list = os.listdir(image_path_obj)
             if not image_name_list:
-                logger.info('图片目录不存在')
+                logger.info('图片目录为空')
                 return {'md_content': md_content}
-        logger.info(f'图片目录下文件数量:{len(image_name_list)}')
+            logger.info(f'图片目录下文件数量:{len(image_name_list)}')
 
         llm = init_chat_model(
             model=LLMConfig.llm_default_model,
