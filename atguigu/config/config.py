@@ -41,3 +41,9 @@ class EmbeddingConfig:
     bge_device=os.getenv("BGE_DEVICE")
     # 特殊处理：将.env中的1/0转为布尔值，兼容常见的数字/字符串格式
     bge_fp16=os.getenv("BGE_FP16") in ("1", "True", "true", 1)
+    bge_batch_size=int(os.getenv("BGE_BATCH_SIZE", "32"))
+
+class MilvusConfig:
+    milvus_url=os.getenv("MILVUS_URL")
+    chunks_collection=os.getenv("CHUNKS_COLLECTION")
+    item_name_collection=os.getenv("ITEM_NAME_COLLECTION")

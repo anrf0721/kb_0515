@@ -15,10 +15,11 @@ def get_bge_model():
             model_name=EmbeddingConfig.bge_m3_path,
             device = EmbeddingConfig.bge_device,
             use_fp16=EmbeddingConfig.bge_fp16,
+            batch_size=EmbeddingConfig.bge_batch_size,
  )
     return bgem3_client_model
 
-def get_bge_embedding(text):
+def get_bge_embedding(text:list):
     bgem3_client_model = get_bge_model()
     embedding = bgem3_client_model.encode_documents(text)
     # print(embedding)
@@ -38,7 +39,7 @@ def get_bge_embedding(text):
     #
     # }
     return {
-        'dense' : [item.tolist()[:2] for item in embedding.get('dense')],
+        'dense' : [item.tolist() for item in embedding.get('dense')],
         'sparse' : [dict(zip(
             item.indices.tolist(),
 
