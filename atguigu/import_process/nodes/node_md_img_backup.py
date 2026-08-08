@@ -154,7 +154,9 @@ class NodeMDImg(NodeBase):
                                      object_name=upload_dir + '/' + image_list.get('image_name',''),
                                      file_path=image_list.get('image_path',''))
 
-            url = f'http://{MinIoConfig.minio_endpoint}/{MinIoConfig.minio_bucket_name}/{upload_dir}/{image_list.get("image_name", '')}'
+            # url = f'http://{MinIoConfig.minio_endpoint}/{MinIoConfig.minio_bucket_name}/{upload_dir}/{image_list.get("image_name", '')}'
+            url = minio_client.presigned_get_object(MinIoConfig.minio_bucket_name, f'{upload_dir}/{image_list.get("image_name", '')}')
+
             logger.info(f'图片上传成功:{url}')
             image_context_summary_and_url_list.append(
                 {

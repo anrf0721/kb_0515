@@ -34,3 +34,10 @@ class MinIoConfig:
     minio_secret_key = os.getenv("MINIO_SECRET_KEY")
     minio_bucket_name = os.getenv("MINIO_BUCKET_NAME")
     minio_img_dir = os.getenv("MINIO_IMG_DIR")
+
+class EmbeddingConfig:
+    bge_m3_path=os.getenv("BGE_M3_PATH")
+    bge_m3=os.getenv("BGE_M3")
+    bge_device=os.getenv("BGE_DEVICE")
+    # 特殊处理：将.env中的1/0转为布尔值，兼容常见的数字/字符串格式
+    bge_fp16=os.getenv("BGE_FP16") in ("1", "True", "true", 1)

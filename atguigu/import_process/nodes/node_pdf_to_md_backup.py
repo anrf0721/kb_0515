@@ -4,6 +4,7 @@ date:7/31/2026
 desc:
 """
 import time
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -56,7 +57,7 @@ class NodePDFToMD(NodeBase):
         }
         data = {
             "files": [
-                {"name": f"{pdf_path_obj.name}", "data_id": "abcd"}
+                {"name": f"{pdf_path_obj.name}", "data_id": str(uuid.uuid4())}
             ],
             "model_version": "vlm"
         }

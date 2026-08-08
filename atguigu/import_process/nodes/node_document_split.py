@@ -3,6 +3,7 @@ author: anrf
 date:7/31/2026
 desc:
 """
+import json
 import re
 from pathlib import Path
 
@@ -128,14 +129,19 @@ class NodeDocumentSplit(NodeBase):
                      'part': idx,
                     }
                 )
-        logger.info(f'切分结果:{json_format(final_section_list)}')
-
-
-        return {'file_title':file_title,'md_path' : md_path,'md_content' : md_content,'chunks' : final_section_list}
+        # logger.info(f'切分结果:{json_format(final_section_list)}')
+        return {'file_title':file_title,'chunks' : final_section_list}
 if __name__ == '__main__':
     node = NodeDocumentSplit()
+    md_path=r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册\hak180产品安全手册_new.md'
     init_state = {
         'md_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册\hak180产品安全手册_new.md',
         # "file_title": "hak180产品安全手册"
     }
     res = node(init_state)
+    logger.info(json_format(res))
+    output_path = Path(md_path).parent / 'chunks.json'
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(res['chunks'], f, ensure_ascii=False, indent=2)
+    logger.info(f'chunks.json 已生成，路径：{output_path}')
+    logger.info(f'切片总数：{len(res["chunks"])}')

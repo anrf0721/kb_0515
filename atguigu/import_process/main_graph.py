@@ -98,8 +98,9 @@ class MainGraphRunner:
         runner = cls().run_graph(state)
 
 if __name__ == '__main__':
-    # runner = MainGraphRunner()
-    init_state = {'local_file_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\xx2.md'}
-    # result = runner.run_graph(init_state)
-    # print(result)
+    init_state = {
+        'local_file_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册.pdf',
+        'local_dir': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc'
+
+                  }
     MainGraphRunner.create_and_run(init_state)
