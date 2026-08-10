@@ -3,104 +3,68 @@ author: anrf
 date:8/1/2026
 desc:
 """
-from langgraph import graph
-from langgraph.constants import START,END
+from langgraph.constants import END
 from langgraph.graph import StateGraph
 
-from atguigu.import_process.nodes.node_bge_embedding import NodeBGEEmbedding
-from atguigu.import_process.nodes.node_document_split import NodeDocumentSplit
-from atguigu.import_process.nodes.node_entry import *
-from atguigu.import_process.nodes.node_import_milvus import NodeImportMilvus
-from atguigu.import_process.nodes.node_item_name_recognition import NodeItemNameRecognition
-from atguigu.import_process.nodes.node_md_img import NodeMDImg
-from atguigu.import_process.nodes.node_pdf_to_md import NodePDFToMD
-from atguigu.import_process.state import *
+from atguigu.query_process.nodes.node_answer_output import NodeAnswerOutput
+from atguigu.query_process.nodes.node_item_name_confirm import NodeItemNameConfirm
+from atguigu.query_process.nodes.node_rerank import NodeRerank
+from atguigu.query_process.nodes.node_rrf import NodeRrf
+from atguigu.query_process.nodes.node_search_embedding import NodeSearchEmbedding
+from atguigu.query_process.nodes.node_search_embedding_hyde import NodeSearchEmbeddingHyde
+from atguigu.query_process.nodes.node_web_search_mcp import NodeWebSearchMcp
+from atguigu.query_process.state import QueryGraphState
+from atguigu.tool.json_dumps_tool import json_format
+from atguigu.tool.logger import logger
 
 
-# 函数版本
-# builder = StateGraph(state_schema=ImportGraphState)
-#
-# def after_entry_router(state:ImportGraphState):
-#     if state.get('is_md_read_enabled'):
-#         return NodeMDImg.name
-#     elif state.get('is_pdf_read_enabled'):
-#         return NodePDFToMD.name
-#     else:
-#         return END
-#
-#
-# builder.add_node(NodeEntry.name,NodeEntry())
-# builder.add_node(NodePDFToMD.name,NodePDFToMD())
-# builder.add_node(NodeMDImg.name,NodeMDImg())
-# builder.add_node(NodeDocumentSplit.name,NodeDocumentSplit())
-# builder.add_node(NodeItemNameRecognition.name,NodeItemNameRecognition())
-# builder.add_node(NodeBGEEmbedding.name,NodeBGEEmbedding())
-# builder.add_node(NodeImportMilvus.name,NodeImportMilvus())
-#
-# builder.set_entry_point(NodeEntry.name)
-# builder.add_conditional_edges(NodeEntry.name,after_entry_router,{NodePDFToMD.name:NodePDFToMD.name,
-#                                                                  NodeMDImg.name:NodeMDImg.name})
-# builder.add_edge(NodePDFToMD.name,NodeMDImg.name)
-# builder.add_edge(NodeMDImg.name,NodeDocumentSplit.name)
-# builder.add_edge(NodeDocumentSplit.name,NodeItemNameRecognition.name)
-# builder.add_edge(NodeItemNameRecognition.name,NodeBGEEmbedding.name)
-# builder.add_edge(NodeBGEEmbedding.name,NodeImportMilvus.name)
-# builder.add_edge(NodeBGEEmbedding.name,END)
-#
-# graph = builder.compile()
-# init_state = {'local_file_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\xx2.md'}
-#
-# graph.invoke(init_state)
-
-# 封装为类,添加实例方法
-class MainGraphRunner:
+class QueryMainGraphRunner:
     def __init__(self):
-        self.builder = StateGraph(state_schema=ImportGraphState)
+        self.builder = StateGraph(state_schema=QueryGraphState)
         self.add_nodes()
         self.add_edges()
-        # 单例,避免重复创建;第二个目的:可以懒加载,延迟加载,节省开销
         self.graph = None
 
     def add_nodes(self):
-        self.builder.add_node(NodeEntry.name,NodeEntry())
-        self.builder.add_node(NodePDFToMD.name,NodePDFToMD())
-        self.builder.add_node(NodeMDImg.name,NodeMDImg())
-        self.builder.add_node(NodeDocumentSplit.name,NodeDocumentSplit())
-        self.builder.add_node(NodeItemNameRecognition.name,NodeItemNameRecognition())
-        self.builder.add_node(NodeBGEEmbedding.name,NodeBGEEmbedding())
-        self.builder.add_node(NodeImportMilvus.name,NodeImportMilvus())
+        self.builder.add_node(NodeItemNameConfirm.name, NodeItemNameConfirm())
+        self.builder.add_node(NodeSearchEmbedding.name, NodeSearchEmbedding())
+        self.builder.add_node(NodeSearchEmbeddingHyde.name, NodeSearchEmbeddingHyde())
+        self.builder.add_node(NodeWebSearchMcp.name, NodeWebSearchMcp())
+        self.builder.add_node(NodeRrf.name, NodeRrf())
+        self.builder.add_node(NodeRerank.name, NodeRerank())
+        self.builder.add_node(NodeAnswerOutput.name, NodeAnswerOutput())
+
+    def after_item_name_confirm_router(self, state: QueryGraphState):
+        answer = state.get("answer", "")
+        if answer:
+            return NodeAnswerOutput.name
+        else:
+            return [NodeSearchEmbeddingHyde.name, NodeSearchEmbedding.name,NodeWebSearchMcp.name]
 
     def add_edges(self):
-        self.builder.set_entry_point(NodeEntry.name)
-        self.builder.add_conditional_edges(NodeEntry.name,self.after_entry_router)
-        self.builder.add_edge(NodePDFToMD.name,NodeMDImg.name)
-        self.builder.add_edge(NodeMDImg.name,NodeDocumentSplit.name)
-        self.builder.add_edge(NodeDocumentSplit.name,NodeItemNameRecognition.name)
-        self.builder.add_edge(NodeItemNameRecognition.name,NodeBGEEmbedding.name)
-        self.builder.add_edge(NodeBGEEmbedding.name,NodeImportMilvus.name)
-        self.builder.add_edge(NodeBGEEmbedding.name,END)
+        self.builder.set_entry_point(NodeItemNameConfirm.name)
+        self.builder.add_conditional_edges(NodeItemNameConfirm.name, self.after_item_name_confirm_router)
+        self.builder.add_edge(NodeSearchEmbeddingHyde.name, NodeRrf.name)
+        self.builder.add_edge(NodeSearchEmbedding.name, NodeRrf.name)
+        self.builder.add_edge(NodeWebSearchMcp.name, NodeRrf.name)
+        self.builder.add_edge(NodeRrf.name,NodeRerank.name)
+        self.builder.add_edge(NodeRerank.name,NodeAnswerOutput.name)
+        self.builder.add_edge(NodeAnswerOutput.name,END)
 
-    def after_entry_router(self,state:ImportGraphState):
-        if state.get('is_md_read_enabled'):
-            return NodeMDImg.name
-        elif state.get('is_pdf_read_enabled'):
-            return NodePDFToMD.name
-        else:
-            return END
-
-    def run_graph(self,init_state):
-        if not self.graph:
+    def run(self,state):
+        if self.graph is None:
             self.graph = self.builder.compile()
-        return self.graph.invoke(init_state)
+        result = self.graph.invoke(state)
+        return result
 
     @classmethod
     def create_and_run(cls,state):
-        runner = cls().run_graph(state)
+        return cls().run(state)
 
 if __name__ == '__main__':
+    runner = QueryMainGraphRunner()
     init_state = {
-        'local_file_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册.pdf',
-        'local_dir': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc'
-
-                  }
-    MainGraphRunner.create_and_run(init_state)
+        "answer": "haha",
+    }
+    result = runner.run(init_state)
+    logger.info(json_format(result))

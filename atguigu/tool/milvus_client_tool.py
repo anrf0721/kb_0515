@@ -13,8 +13,8 @@ def get_milvus_client():
     global milvus_client
     if not milvus_client:
         milvus_client = MilvusClient(
-            uri=MilvusConfig.milvus_url ,
-
+            uri=MilvusConfig.milvus_url,
+            timeout=30  # 连接超时30秒
         )
     return milvus_client
 

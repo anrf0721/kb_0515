@@ -33,7 +33,7 @@ class NodeBGEEmbedding(NodeBase):
             chunk['sparse_vector'] = emb_list.get('sparse')[idx]
 
         logger.info(f'向量化完成，共处理 {len(chunks)} 条')
-        return state
+        return {'chunks': chunks}
 
 if __name__ == '__main__':
     node = NodeBGEEmbedding()
@@ -47,9 +47,9 @@ if __name__ == '__main__':
         'chunks': chunks
     }
     res = node(init_state)
-
+    # logger.info(json_format(res))
     output_path = Path(__file__).parent.parent.parent / 'data' / 'chunks_bge.json'
     with open(output_path, 'w', encoding='utf-8') as f:
         # f.write(json.dumps(res, ensure_ascii=False, indent=4))
-        json.dump(res,f,ensure_ascii=False,indent=4)
+        json.dump(res['chunks'],f,ensure_ascii=False,indent=4)
     # logger.info(json_format(res))

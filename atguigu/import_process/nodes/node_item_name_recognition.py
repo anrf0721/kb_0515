@@ -4,6 +4,7 @@ date:7/31/2026
 desc:
 """
 import json
+import time
 from pathlib import Path
 
 from langchain.chat_models import init_chat_model
@@ -66,7 +67,7 @@ class NodeItemNameRecognition(NodeBase):
             {"role": "user", "content": ITEM_NAME_USER_PROMPT_TEMPLATE.format(file_title=file_title, context=content_str)}
         ]
         res = llm.invoke(messages)
-        entity_name = res.content.strip()
+        entity_name = " ".join(res.content.split())
         logger.info(f'实体名:{entity_name}')
 
         if not entity_name:
@@ -102,6 +103,7 @@ class NodeItemNameRecognition(NodeBase):
             milvus_client.create_collection(collection_name = collection_name,schema= schema, index_params=index_params)
 
         milvus_client.load_collection(collection_name=collection_name)
+
         milvus_client.delete(collection_name=collection_name, filter='entity_name=="$target_name"', filter_params={"$target_name": entity_name})
 
         embedding = get_bge_embedding([entity_name])
@@ -121,7 +123,7 @@ class NodeItemNameRecognition(NodeBase):
         for chunk in chunks:
             chunk['entity_name'] = entity_name
         return {
-            "entity_name": entity_name,
+            "item_name": entity_name,
             "file_title": file_title,
             "chunks": chunks
         }
@@ -142,4 +144,5 @@ if __name__ == '__main__':
     logger.info(json_format(res))
     output_path = Path(__file__).parent.parent.parent / 'data' / 'chunks_recognition.json'
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(res['chunks'], f, ensure_ascii=False, indent=2)
+        # json.dump(res['chunks'], f, ensure_ascii=False, indent=2)
+        f.write(json_format(res['chunks']))

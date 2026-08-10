@@ -5,6 +5,7 @@ desc: 批量版本 — 节点内批量 embedding，不走单条
        改动点见 [CHANGED] 标记
 """
 import json
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -45,7 +46,7 @@ def _extract_entity_name(llm, file_title, chunks):
         )}
     ]
     res = llm.invoke(messages)
-    entity_name = res.content.strip()
+    entity_name = " ".join(res.content.split())
     if not entity_name:
         entity_name = file_title
         logger.warning(f'识别失败，使用文件名:{file_title}')
@@ -126,6 +127,22 @@ class NodeItemNameRecognitionSend(NodeBase):
             )
 
         milvus_client.load_collection(collection_name=collection_name)
+        # 等待 collection 完全加载，避免 Timestamp lag too large 错误
+        max_retries = 10  # 最多等20秒
+        for i in range(max_retries):
+            try:
+                load_state = milvus_client.get_load_state(collection_name=collection_name)
+                state = load_state.get("state", "")
+                if state == "Loaded":
+                    logger.info(f"collection 加载完成")
+                    break
+                logger.info(f"collection 加载中，当前状态: {state}，等待2秒... ({i+1}/{max_retries})")
+            except Exception as e:
+                logger.warning(f"get_load_state 异常: {e}，等待2秒重试... ({i+1}/{max_retries})")
+            time.sleep(2)
+        else:
+            logger.error("collection 加载超时，请检查 Milvus 服务状态")
+            raise Exception("collection 加载超时")
 
         # ======================== [CHANGED] 批量删除旧记录（参数化防注入） ========================
         entity_names = [r["entity_name"] for r in results]
