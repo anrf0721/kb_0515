@@ -37,7 +37,8 @@ class NodeItemNameRecognition(NodeBase):
             logger.error("file_title is empty")
             raise Exception("file_title is empty")
 
-        chunk_top_list = chunks[:5]
+        # 取更多切片，提高品牌名被命中的概率（受 max_len 限制，不会无限膨胀）
+        chunk_top_list = chunks[:20]
         max_len = 10000
         content_str = '\n'
         for idx,chunk in enumerate(chunk_top_list,start=1):
@@ -67,7 +68,9 @@ class NodeItemNameRecognition(NodeBase):
             {"role": "user", "content": ITEM_NAME_USER_PROMPT_TEMPLATE.format(file_title=file_title, context=content_str)}
         ]
         res = llm.invoke(messages)
-        entity_name = " ".join(res.content.split())
+        entity_name = "".join(res.content.split())
+        # 统一小写：消除 LLM 大小写不稳定的影响，保证导入与查询向量一致
+        entity_name = entity_name.lower()
         logger.info(f'实体名:{entity_name}')
 
         if not entity_name:
@@ -91,10 +94,10 @@ class NodeItemNameRecognition(NodeBase):
 
             index_params = milvus_client.prepare_index_params()
             index_params.add_index(field_name='dense_vector', index_type='IVF_FLAT', metric_type='COSINE', params={'nlist':128})
-            search_params = {
-                "metric_type": "COSINE",
-                "params": {"nprobe": 16}
-            }
+            # search_params = {
+            #     "metric_type": "COSINE",
+            #     "params": {"nprobe": 16}
+            # }
             index_params.add_index(
                 field_name='sparse_vector',
                 index_type='SPARSE_INVERTED_INDEX',
