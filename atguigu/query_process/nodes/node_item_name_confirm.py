@@ -100,7 +100,7 @@ class NodeItemNameConfirm(NodeBase):
 
                 dense_data = embeddings.get('dense')[idx]
                 sparse_data = embeddings.get('sparse')[idx]
-                logger.info(f"Embedding_Type: {type(dense_data)}, {type(sparse_data)}")
+                logger.info(f"dense_data_type: {type(dense_data)}, sparse_data_type:{type(sparse_data)}")
 
                 reqs = create_reqs(
                     # AnnSearchRequest 需要的data格式是list
@@ -150,18 +150,15 @@ class NodeItemNameConfirm(NodeBase):
                 if answer:
                     message_id = add_or_update_history(session_id, 'assistant', answer)
 
-                history_list = get_chat_history_list(session_id,limit=10)
-                # MongoDB 批量更新 + 内存对象同步更新(要把mongodb和内存对象都同步更新!)
-                ids = [item.get('_id','') for item in history_list]
+                history_list = get_chat_history_list(session_id, limit=10)
+                # MongoDB 批量更新（必须用原始 ObjectId）
+                ids = [item.get('_id', '') for item in history_list]
                 if ids:
-                    update_history_item_names(ids, rewritten_query = result.rewritten_query,item_names = final_item_names)
-                    for h in history_list:
-                        h['rewritten_query'] = result.rewritten_query
-                        h['item_names'] = final_item_names
-                # 删掉原始的_id,避免最后序列化报错
+                    update_history_item_names(ids, rewritten_query=result.rewritten_query, item_names=final_item_names)
+                # 将 _id 转为字符串，避免 JSON 序列化报错❌️
+                history_list = get_chat_history_list(session_id, limit=10)
                 for h in history_list:
-                    h['message_id'] = str(h['_id'])
-                    del h['_id']
+                    h['_id'] = str(h['_id'])
         return {
             'message_id' : message_id,
             "session_id": session_id,

@@ -116,8 +116,8 @@ class NodeMDImg(NodeBase):
                         },
                         {"type": "text",
                          "text": f"请根据图片的上文{pre_text},图片的后文{post_text}，给出图片的摘要，请使用中文,30字以内。"},
-                    ],
-                },
+                    ]
+                }
             ]
             res = llm.invoke(messages)
             image_context_summary_list.append({'image_name': image_name,
@@ -177,7 +177,6 @@ if __name__ == '__main__':
     node = NodeMDImg()
     init_state = {
         'md_path': r'E:\尚硅谷\12_掌柜智库\11、掌柜智库01\资料\05-设备手册汇总\doc\hak180产品安全手册\hak180产品安全手册.md'
-
     }
     res = node(init_state)
     # logger.info(json_format(res))

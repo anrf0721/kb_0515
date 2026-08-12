@@ -105,16 +105,10 @@ class NodeDocumentSplit(NodeBase):
                 )
                 logger.info(f'段落长度小于{MAX_LENGTH},跳过:{title}')
                 continue
-            if  '<table>' in content:
-
-
-                final_section_list.append(
-                    {
-                    **section_dict,
-                     'part': 0
-                     }
-                )
-                logger.info(f'遇到表格,跳过:{title}')
+            if '<table>' in content:
+                # 表格不拆分：表头、列名、底部图例都是全局语义，拆了单行无法理解
+                final_section_list.append({**section_dict, 'part': 0})
+                logger.info(f'包含表格，保留整体不拆分:{title}')
                 continue
             else :
                 logger.info(f'段落长度大于{MAX_LENGTH},开始切分:{title}')

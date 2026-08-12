@@ -43,6 +43,9 @@ class NodeImportMilvus(NodeBase):
             schema.add_field(field_name='id', datatype=DataType.INT64, is_primary=True)
             schema.add_field(field_name='entity_content', datatype=DataType.VARCHAR, max_length=5000)
             schema.add_field(field_name='file_title', datatype=DataType.VARCHAR, max_length=500)
+            schema.add_field(field_name='title', datatype=DataType.VARCHAR, max_length=500)
+            schema.add_field(field_name='item_name', datatype=DataType.VARCHAR, max_length=500)
+
             schema.add_field(field_name='dense_vector', datatype=DataType.FLOAT_VECTOR, dim=1024)
             schema.add_field(field_name='sparse_vector', datatype=DataType.SPARSE_FLOAT_VECTOR)
 
@@ -94,12 +97,14 @@ class NodeImportMilvus(NodeBase):
             insert_data.append({
                 "entity_content": entity_content,
                 "file_title": file_title,
+                "title": chunk.get("title", ""),
+                "item_name": chunk.get("entity_name", ""),
                 "dense_vector": chunk['dense_vector'],
                 "sparse_vector": chunk['sparse_vector']
             })
 
         result = milvus_client.insert(collection_name=collection_name, data=insert_data)
-        # logger.info(f"插入结果: {result}")
+        logger.info(f"插入成功, 条数: {result.get('insert_count', 0)}")
 
 
 
@@ -118,4 +123,4 @@ if __name__ == '__main__':
         'file_title' : 'hak180产品安全手册'
     }
     res = node(init_state)
-    logger.info(json_format(res))
+    logger.info(f"chunks 数量: {len(res.get('chunks', []))}")

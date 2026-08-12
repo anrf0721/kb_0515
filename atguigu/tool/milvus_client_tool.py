@@ -26,8 +26,8 @@ def create_reqs(
         sparse_param = None,
         dense_limit: int = None,
         sparse_limit: int = None,
-        dense_expr = None,
-        sparse_expr = None,
+        expr = None,
+
 ):
     if not dense_param:
         dense_param = {
@@ -45,14 +45,14 @@ def create_reqs(
         anns_field=dense_anns_field,
         param=dense_param,
         limit=dense_limit,
-        expr=dense_expr,
+        expr=expr,
     )
     sparse_reqs = AnnSearchRequest(
         data=sparse_data,
         anns_field=sparse_anns_field,
         param=sparse_param,
         limit=sparse_limit,
-        expr=sparse_expr,
+        expr=expr,
     )
     return [dense_reqs,sparse_reqs]
 

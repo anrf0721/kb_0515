@@ -26,6 +26,8 @@ dependencies = [
     "pymilvus[model]>=3.0.1",
     "protobuf>=5.27.2,<6.0.0",
     "utils>=1.0.2",
+    "openai-agents>=0.20.0",
+    "mcp>=1.12,<2.0",
 ]
 
 

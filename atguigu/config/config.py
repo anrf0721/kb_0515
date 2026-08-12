@@ -18,7 +18,7 @@ class MineruConfig :
 
 class LLMConfig:
     openai_api_key = os.getenv('OPENAI_API_KEY')
-    openai_base_url = os.getenv('OPENAI_BASE_URL')
+    openai_base_url = os.getenv('OPENAI_API_BASE')
     # 默认 LLM 模型
     llm_default_model = os.getenv('LLM_DEFAULT_MODEL')
     # 默认温度参数（0-1，越低越稳定）
@@ -51,3 +51,7 @@ class MilvusConfig:
 class MongoConfig:
     mongo_url=os.getenv("MONGO_URL")
     mongo_db_name=os.getenv("MONGO_DB_NAME")
+
+class McpConfig:
+    mcp_base_url=os.getenv("MCP_DASHSCOPE_BASE_URL")
+    api_key=os.getenv("OPENAI_API_KEY")
