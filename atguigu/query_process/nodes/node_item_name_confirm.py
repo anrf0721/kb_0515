@@ -3,13 +3,13 @@ author: anrf
 date:8/10/2026
 desc:
 """
-
+import re
 from typing import List
 
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel
 
-from atguigu.config.config import LLMConfig, MilvusConfig
+from atguigu.config.config import ItemConfirmConfig, LLMConfig, MilvusConfig
 from atguigu.config.propmt import *
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.state import QueryGraphState
@@ -35,6 +35,24 @@ class NodeItemNameConfirm(NodeBase):
     # 覆盖基类的 name 属性，标识节点名称
     name: str = "node_item_name_confirm"
 
+    # 疑似型号 token 正则：G6 / P7i / hak180 / MONA M03（规则优先，命中则跳过 LLM）
+    MODEL_TOKEN_PATTERN = re.compile(r'[A-Za-z]{1,8}[- ]?\d{1,5}[A-Za-z0-9]*')
+
+    def _extract_model_tokens(self, query: str) -> list:
+        """规则提取结构化型号 token：命中即跳过 LLM，零幻觉零成本"""
+        tokens = self.MODEL_TOKEN_PATTERN.findall(query)
+        # 归一化与导入端一致：去空格 + 小写
+        return [''.join(token.split()).lower() for token in tokens]
+
+    @staticmethod
+    def _get_last_confirmed_item_names(history_list: list):
+        """倒序找最近一条 item_names 非空的历史消息（快速通道复用）"""
+        for history in reversed(history_list):
+            item_names = history.get('item_names') or []
+            if item_names:
+                return item_names
+        return None
+
     def process(self, state: QueryGraphState):
         """
         节点逻辑
@@ -53,91 +71,136 @@ class NodeItemNameConfirm(NodeBase):
             logger.error("原始查询为空")
             raise Exception("原始查询为空")
 
+        # 兜底初始化：LLM 提取不到商品名时也不会 NameError
+        final_item_names = []
+        answer = ''
+        history_list = []
+
+        # ① 写入用户消息（持久化优先，拿当前轮 message_id 用于精确回填）
         message_id = add_or_update_history(session_id,'user',original_query)
         logger.info(f"会话ID:{session_id},消息ID:{message_id},原始查询:{original_query}")
-        # 汇总历史会话消息给到大模型
+
+        # ② 汇总历史会话消息给到大模型
         history_list = get_chat_history_list(session_id)
         content = ''
         for history in history_list:
             role = history.get('role','')
             text = history.get('text','')
-            history_content = f"{role}:{text}\n"
-            content += history_content
+            content += f"{role}:{text}\n"
         logger.info(f"历史会话汇总:{content}")
 
-        llm = init_chat_model(
-            model_provider='openai',
-            model=LLMConfig.llm_default_model,
-            temperature=LLMConfig.llm_default_temperature,
-            api_key = LLMConfig.openai_api_key,
-            base_url=LLMConfig.openai_base_url,
+        # ③ 规则前置：先匹配结构化型号（G6/P7i/hak180），命中则跳过 LLM
+        rule_item_names = self._extract_model_tokens(original_query)
+        if rule_item_names:
+            item_names_list = rule_item_names
+            rewritten_query = original_query
+            logger.info(f'规则命中型号: {rule_item_names}, 跳过 LLM 提取')
+        else:
+            # ④ 快速通道：历史已有已确认 item_names 且当前无新主体 → 直接复用，跳过 LLM + Milvus
+            reuse_item_names = self._get_last_confirmed_item_names(history_list)
+            if reuse_item_names:
+                final_item_names = reuse_item_names
+                rewritten_query = original_query
+                logger.info(f'复用历史已确认商品名: {reuse_item_names}, 跳过 LLM + Milvus')
+                # 回填当前轮 user 消息，保持每轮历史自洽
+                update_history_item_names([message_id], rewritten_query=rewritten_query, item_names=final_item_names)
+                history_list = get_chat_history_list(session_id, limit=10)
+                for h in history_list:
+                    h['_id'] = str(h['_id'])
+                return {
+                    'message_id' : message_id,
+                    "session_id": session_id,
+                    "original_query": original_query,
+                    "rewritten_query": rewritten_query,
+                    "item_names": final_item_names,
+                    'answer': answer,
+                    'history_list': history_list
+                }
 
-        )
-        message = [
-            {"role": "system", "content": ITEM_NAME_EXTRACT_SYSTEM_PROMPT},
-            {"role": "user", "content": ITEM_NAME_EXTRACT_TEMPLATE.format(history_text=content, original_query=original_query)}
-        ]
-        # 格式化输出
-        structured_llm = llm.with_structured_output(ItemExtractResult)
-        result = structured_llm.invoke(message)
-        # 获取查询改写和转移后的商品名称.查询改写字段可以直接存储
-        logger.info(f"LLM Response: item_names={result.item_names}, rewritten_query={result.rewritten_query}")
-        # 去除空格 + 统一小写：与导入端一致，消除 LLM 大小写不稳定的影响
-        item_names_list = [
-            ''.join(item_name.split()).lower() for item_name in result.item_names
-        ]
-
-        if not result.rewritten_query:
-            result.rewritten_query = original_query
-
-
-        # 向量数据库匹配真实的商品名称
-        if item_names_list:
-            embeddings = get_bge_embedding(item_names_list)
-            collection_name = MilvusConfig.item_name_collection
-            final_search_item_names_list = []
-            for idx, item_name in enumerate(item_names_list):
-
-                dense_data = embeddings.get('dense')[idx]
-                sparse_data = embeddings.get('sparse')[idx]
-                logger.info(f"dense_data_type: {type(dense_data)}, sparse_data_type:{type(sparse_data)}")
-
-                reqs = create_reqs(
-                    # AnnSearchRequest 需要的data格式是list
-                    dense_data=[dense_data],
-                    sparse_data=[sparse_data],
-                    dense_anns_field="dense_vector",
-                    sparse_anns_field="sparse_vector",
+            # ⑤ LLM 提取（try/except 兜底：失败降级为原始查询，不拖垮链路）
+            try:
+                llm = init_chat_model(
+                    model_provider='openai',
+                    model=LLMConfig.llm_default_model,
+                    temperature=LLMConfig.llm_default_temperature,
+                    api_key = LLMConfig.openai_api_key,
+                    base_url=LLMConfig.openai_base_url,
 
                 )
-                hybrid_result = search_hybrid(
-                    collection_name=collection_name,
-                    reqs=reqs,
-                    ranker=(0.8, 0.2),
-                    limit=10,
-                    output_fields=['entity_name']
-                )
-                logger.info(f"混合搜索结果: {hybrid_result}")
-                res = hybrid_result[0]
-                logger.info(json_format(hybrid_result[0]))
-                search_item_names_list = [
-                    {
-                        'origin_item_name': item_name,
-                        'search_item_name': item.get('entity', {}).get('entity_name',''),
-                        'score': item.get('distance','')
-                    }
-                    for item in res
+                message = [
+                    {"role": "system", "content": ITEM_NAME_EXTRACT_SYSTEM_PROMPT},
+                    {"role": "user", "content": ITEM_NAME_EXTRACT_TEMPLATE.format(history_text=content, original_query=original_query)}
                 ]
-                final_search_item_names_list.extend(search_item_names_list)
+                # 格式化输出
+                structured_llm = llm.with_structured_output(ItemExtractResult)
+                result = structured_llm.invoke(message)
+                # 获取查询改写和转移后的商品名称.查询改写字段可以直接存储
+                logger.info(f"LLM Response: item_names={result.item_names}, rewritten_query={result.rewritten_query}")
+                # 去除空格 + 统一小写：与导入端一致，消除 LLM 大小写不稳定的影响
+                item_names_list = [
+                    ''.join(item_name.split()).lower() for item_name in result.item_names
+                ]
+                rewritten_query = result.rewritten_query or original_query
+            except Exception as e:
+                logger.error(f'LLM 提取失败: {e}, 降级为原始查询')
+                item_names_list = []
+                rewritten_query = original_query
+
+        # ⑥ 向量数据库匹配真实的商品名称（try/except 兜底：失败降级为按原始说法进下游检索）
+        if item_names_list:
+            try:
+                embeddings = get_bge_embedding(item_names_list)
+                collection_name = MilvusConfig.item_name_collection
+                final_search_item_names_list = []
+                for idx, item_name in enumerate(item_names_list):
+
+                    dense_data = embeddings.get('dense')[idx]
+                    sparse_data = embeddings.get('sparse')[idx]
+                    logger.info(f"dense_data_type: {type(dense_data)}, sparse_data_type:{type(sparse_data)}")
+
+                    reqs = create_reqs(
+                        # AnnSearchRequest 需要的data格式是list
+                        dense_data=[dense_data],
+                        sparse_data=[sparse_data],
+                        dense_anns_field="dense_vector",
+                        sparse_anns_field="sparse_vector",
+
+                    )
+                    hybrid_result = search_hybrid(
+                        collection_name=collection_name,
+                        reqs=reqs,
+                        ranker=(0.8, 0.2),
+                        limit=10,
+                        output_fields=['entity_name']
+                    )
+                    logger.info(f"混合搜索结果: {hybrid_result}")
+                    res = hybrid_result[0]
+                    logger.info(json_format(hybrid_result[0]))
+                    search_item_names_list = [
+                        {
+                            'origin_item_name': item_name,
+                            'search_item_name': item.get('entity', {}).get('entity_name',''),
+                            'score': item.get('distance','')
+                        }
+                        for item in res
+                    ]
+                    final_search_item_names_list.extend(search_item_names_list)
                 logger.info(f"搜索商品名称: {final_search_item_names_list}")
-                # 根据置信度判断走哪条路线,补充商品名称和答案字段
+
+                # ⑦ 置信度分支路由：confirm 与 option 独立处理，多商品逐个路由不吞候选
                 option_item_names = [item.get('search_item_name') for item in final_search_item_names_list
-                                      if item.get('score') >= 0.6 and item.get('score') < 0.85 ]
+                                      if item.get('score') >= ItemConfirmConfig.option_threshold
+                                      and item.get('score') < ItemConfirmConfig.confirm_threshold]
 
                 confirm_item_names = [item.get('search_item_name') for item in final_search_item_names_list
-                                      if item.get('score') >= 0.85]
-                # 四条路线分支
-                if confirm_item_names:
+                                      if item.get('score') >= ItemConfirmConfig.confirm_threshold]
+
+                if confirm_item_names and option_item_names:
+                    # 部分确定 + 部分候选：确定的进 final，候选单独反问，不静默丢弃
+                    final_item_names = confirm_item_names
+                    answer = (f'已确定 {",".join(confirm_item_names)}；'
+                              f'{",".join(option_item_names)} 是否也是你要咨询的商品?')
+                elif confirm_item_names:
                     final_item_names = confirm_item_names
                     answer = ''
                 elif option_item_names:
@@ -146,24 +209,32 @@ class NodeItemNameConfirm(NodeBase):
                 else:
                     final_item_names = []
                     answer = '无法确定商品名称，请重新描述。'
-                # 回填历史记录列表字段,因为刚刚可能执行了插入数据操作,需要再拿一次历史会话消息
-                if answer:
-                    message_id = add_or_update_history(session_id, 'assistant', answer)
+            except Exception as e:
+                # Milvus 降级：按原始说法进下游检索，不拖垮链路
+                logger.error(f'Milvus 对齐失败: {e}, 降级为按原始说法进下游检索')
+                final_item_names = item_names_list
+                answer = ''
+        else:
+            # 规则与 LLM 均未提取到商品名
+            answer = '无法确定商品名称，请重新描述。'
 
-                history_list = get_chat_history_list(session_id, limit=10)
-                # MongoDB 批量更新（必须用原始 ObjectId）
-                ids = [item.get('_id', '') for item in history_list]
-                if ids:
-                    update_history_item_names(ids, rewritten_query=result.rewritten_query, item_names=final_item_names)
-                # 将 _id 转为字符串，避免 JSON 序列化报错❌️
-                history_list = get_chat_history_list(session_id, limit=10)
-                for h in history_list:
-                    h['_id'] = str(h['_id'])
+        # ⑧ 反问/提示写入 assistant 消息（answer 非空时）
+        if answer:
+            add_or_update_history(session_id, 'assistant', answer)
+
+        # ⑨ 精确定位回填当前轮 user 消息（只更新这一条，不批量覆盖历史窗口）
+        update_history_item_names([message_id], rewritten_query=rewritten_query, item_names=final_item_names)
+
+        # ⑩ 重查历史拿最新数据 + _id 转 str，防止 JSON 序列化报错
+        history_list = get_chat_history_list(session_id, limit=10)
+        for h in history_list:
+            h['_id'] = str(h['_id'])
+
         return {
             'message_id' : message_id,
             "session_id": session_id,
             "original_query": original_query,
-            "rewritten_query": result.rewritten_query,
+            "rewritten_query": rewritten_query,
             "item_names": final_item_names,
             'answer': answer,
             'history_list': history_list

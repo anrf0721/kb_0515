@@ -68,6 +68,10 @@ class NodeDocumentSplit(NodeBase):
                         logger.info(f'结束代码块:{marker}')
             if not is_in_block and re.match(title_pattern, line):
                 temp_list = md_split_list[current_idx:idx]
+                if not temp_list:
+                    # 首行即标题：无前文，标题行自身作为新 section 起点（防止 temp_list[0] 越界）
+                    current_idx = idx
+                    continue
                 # logger.info(f'开始切分:{temp_list}')
                 content = '\n'.join(temp_list[1:])
                 # logger.info(f'切分结果:{content}')

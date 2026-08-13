@@ -48,6 +48,15 @@ class MilvusConfig:
     chunks_collection=os.getenv("CHUNKS_COLLECTION")
     item_name_collection=os.getenv("ITEM_NAME_COLLECTION")
 
+class ItemConfirmConfig:
+    """
+    商品名称确认节点置信度阈值（可标定后调整，线上用反问点击率/误判进检索率监控回调）
+    """
+    # 确定阈值：混合相似度 >= 此值直接下钻检索（高精拐点，宁缺毋滥）
+    confirm_threshold = float(os.getenv('ITEM_CONFIRM_THRESHOLD', '0.85'))
+    # 候选阈值：>= 此值且 < confirm_threshold 反问用户（召回底线，再低基本是噪声）
+    option_threshold = float(os.getenv('ITEM_OPTION_THRESHOLD', '0.6'))
+
 class MongoConfig:
     mongo_url=os.getenv("MONGO_URL")
     mongo_db_name=os.getenv("MONGO_DB_NAME")

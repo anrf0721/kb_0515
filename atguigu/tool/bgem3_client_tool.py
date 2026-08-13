@@ -3,6 +3,8 @@ author: anrf
 date:8/7/2026
 desc:
 """
+import threading
+
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
 from atguigu.config.config import EmbeddingConfig
@@ -19,9 +21,14 @@ def get_bge_model():
  )
     return bgem3_client_model
 
+# 全局推理锁：模型是进程级单例，多用户并发时串行化前向传播，
+# 防止 GPU 显存叠加 OOM / CPU 线程池竞争导致性能退化
+_bge_infer_lock = threading.Lock()
+
 def get_bge_embedding(text:list):
     bgem3_client_model = get_bge_model()
-    embedding = bgem3_client_model.encode_documents(text)
+    with _bge_infer_lock:
+        embedding = bgem3_client_model.encode_documents(text)
     # print(embedding)
     # for item in embedding['dense']:
     #     print(item,type(item))

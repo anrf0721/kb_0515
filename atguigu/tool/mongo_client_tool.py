@@ -5,6 +5,7 @@ desc:
 """
 import time
 
+from bson import ObjectId
 from pymongo import MongoClient
 
 from atguigu.config.config import MongoConfig
@@ -85,6 +86,10 @@ def clear_history(session_id):
 
 def update_history_item_names(message_id_list:list, rewritten_query, item_names, ts=None):
     collection = get_mongo_collection()
+    # 兼容 str / ObjectId：insert_one 返回的是 str，find 返回的是 ObjectId
+    message_id_list = [
+        ObjectId(mid) if isinstance(mid, str) else mid for mid in message_id_list
+    ]
     data = {
         'item_names': item_names,
         'rewritten_query': rewritten_query,

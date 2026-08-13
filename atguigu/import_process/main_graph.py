@@ -54,6 +54,10 @@ from atguigu.import_process.state import *
 
 # 封装为类,添加实例方法
 class MainGraphRunner:
+    # 类级编译结果缓存：多请求共享同一编译产物（LangGraph 支持并发 invoke，每个请求独立 state 拷贝），
+    # 避免每请求重建 StateGraph 的开销；节点实例编译时创建一次，后续请求复用
+    _compiled_graph = None
+
     def __init__(self):
         self.builder = StateGraph(state_schema=ImportGraphState)
         self.add_nodes()
@@ -95,7 +99,9 @@ class MainGraphRunner:
 
     @classmethod
     def create_and_run(cls,state):
-        runner = cls().run_graph(state)
+        if cls._compiled_graph is None:
+            cls._compiled_graph = cls().builder.compile()
+        return cls._compiled_graph.invoke(state)
 
 if __name__ == '__main__':
     init_state = {

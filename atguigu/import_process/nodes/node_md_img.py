@@ -6,6 +6,7 @@ desc:
 import base64
 import os
 import re
+import threading
 import time
 from collections import deque
 from datetime import timedelta
@@ -31,6 +32,11 @@ class NodeMDImg(NodeBase):
 
     name = "node_md_img"
 
+    # 进程级 RPM 滑动窗口：跨请求共享，防止多用户并发时各自独立窗口叠加冲击 API 配额；
+    # 复合操作（检查+修改）用锁保护，sleep 在锁外执行避免阻塞其他请求
+    _rpm_dq = deque(maxlen=30)
+    _rpm_lock = threading.Lock()
+
     def process(self, state: ImportGraphState):
         image_name_list, image_path_obj, md_content,md_path = NodeMDImg.read_image_obj(state)
 
@@ -44,25 +50,29 @@ class NodeMDImg(NodeBase):
                       md_path) -> tuple[Path, str]:
         minio_client = get_client()
         upload_dir = MinIoConfig.minio_img_dir
+        # 按文件 stem 隔离子目录：多用户并发上传时互不干扰，只清理当前文件自己的旧图
+        file_prefix = f"{upload_dir}/{Path(md_path).stem}"
 
-        delete_image_obj = minio_client.list_objects(bucket_name=MinIoConfig.minio_bucket_name, prefix=upload_dir,
+        delete_image_obj = minio_client.list_objects(bucket_name=MinIoConfig.minio_bucket_name, prefix=file_prefix,
                                                      recursive=True)
         delete_image_obj_list = [DeleteObject(i.object_name) for i in delete_image_obj]
-        errors = minio_client.remove_objects(bucket_name=MinIoConfig.minio_bucket_name,
-                                             delete_object_list=delete_image_obj_list)
-        logger.info(f"删除文件数: {len(delete_image_obj_list)}")
-        for error in errors:
-            logger.error(error)
+        if delete_image_obj_list:
+            errors = minio_client.remove_objects(bucket_name=MinIoConfig.minio_bucket_name,
+                                                 delete_object_list=delete_image_obj_list)
+            logger.info(f"删除文件数: {len(delete_image_obj_list)}")
+            for error in errors:
+                logger.error(error)
 
         image_summary_with_context_and_url_list = []
         for image_with_context in image_summary_with_context_list:
+            object_name = f"{file_prefix}/{image_with_context['image_name']}"
             minio_client.fput_object(bucket_name=MinIoConfig.minio_bucket_name,
-                                     object_name=upload_dir + '/' + image_with_context['image_name'],
+                                     object_name=object_name,
                                      file_path=image_with_context['image_path'])
 
             url = minio_client.presigned_get_object(
                 bucket_name=MinIoConfig.minio_bucket_name,
-                object_name=str(upload_dir + '/' + image_with_context['image_name']),
+                object_name=object_name,
                 expires=timedelta(days=7)  # 链接有效期
             )
 
@@ -95,8 +105,8 @@ class NodeMDImg(NodeBase):
             base_url=LLMConfig.openai_base_url,
             temperature=LLMConfig.llm_default_temperature
         )
-        # 【改动1】dq 提到外层 for 外部，避免每次重建导致滑动窗口失效
-        dq = deque(maxlen=30)
+        # 【改动1】dq 提到外层 for 外部，避免每次重建导致滑动窗口失效（升级为类属性进程级共享）
+        # 【改动1.1】多用户并发：窗口与锁为类属性，跨请求共享限速配额
         for image_name in image_name_list:
             # 【改动7】每轮循环更新 current_time，否则窗口判断永远用的是初始值
             current_time = time.time()
@@ -117,17 +127,22 @@ class NodeMDImg(NodeBase):
             # 【改动2】去掉内层 for image_context in image_context_list，每张图只调一次 LLM
             # 【改动3】滑动窗口限速逻辑直接处理当前图片，不再遍历历史列表
             # 先清理过期请求
-            while dq and current_time - dq[0] > 60:
-                dq.popleft()
-            if dq and len(dq) == dq.maxlen:
-                need_wait_time = 60 - (current_time - dq[0])
-                if need_wait_time > 0:
-                    logger.error(f'图片处理超时,等待时间:{need_wait_time}')
-                    time.sleep(need_wait_time)
-                    current_time = time.time()
-                    while dq and current_time - dq[0] > 60:
-                        dq.popleft()
-            dq.append(current_time)
+            with cls._rpm_lock:
+                while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
+                    cls._rpm_dq.popleft()
+                if cls._rpm_dq and len(cls._rpm_dq) == cls._rpm_dq.maxlen:
+                    need_wait_time = 60 - (current_time - cls._rpm_dq[0])
+                else:
+                    need_wait_time = 0
+            if need_wait_time > 0:
+                logger.error(f'图片处理超时,等待时间:{need_wait_time}')
+                time.sleep(need_wait_time)
+                current_time = time.time()
+                with cls._rpm_lock:
+                    while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
+                        cls._rpm_dq.popleft()
+            with cls._rpm_lock:
+                cls._rpm_dq.append(current_time)
 
             # 【改动5】直接处理当前图片，使用 pre_text/post_text 而非 image_context.get()
             image_path = str(image_path_obj / image_name)
