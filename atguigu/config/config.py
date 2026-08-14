@@ -64,3 +64,7 @@ class MongoConfig:
 class McpConfig:
     mcp_base_url=os.getenv("MCP_DASHSCOPE_BASE_URL")
     api_key=os.getenv("OPENAI_API_KEY")
+
+class RerankConfig:
+    rerank_base_url = os.getenv("RERANK_BASE_URL")
+    rerank_api_key = os.getenv("OPENAI_API_KEY")

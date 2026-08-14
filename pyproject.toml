@@ -28,6 +28,7 @@ dependencies = [
     "utils>=1.0.2",
     "openai-agents>=0.20.0",
     "mcp>=1.12,<2.0",
+    "dashscope>=1.26.7",
 ]
 
 

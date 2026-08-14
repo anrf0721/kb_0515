@@ -41,7 +41,7 @@ class NodeWebSearchMcp(NodeBase):
         return {
             "web_search_docs": [
                 {
-                    "content": item.get("snippet", ""),
+                    "entity_content": item.get("snippet", ""),
                     "title": item.get("title", ""),
                     "url": item.get("url", ""),
                     "source": "web"

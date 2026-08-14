@@ -78,7 +78,7 @@ class NodeSearchEmbeddingHyde(NodeBase):
             reqs=reqs,
             ranker=(0.8, 0.2),
             limit=10,
-            output_fields=['id', 'entity_content', 'file_title']
+            output_fields=['id', 'entity_content', 'title','item_name']
         )
         logger.info(res[0])
         embeddings_chunks = [
