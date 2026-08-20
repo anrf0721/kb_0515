@@ -42,9 +42,10 @@ class NodeItemNameRecognition(NodeBase):
         max_len = 10000
         content_str = '\n'
         for idx,chunk in enumerate(chunk_top_list,start=1):
-            title = chunk.get("title", "")
             content = chunk.get("content", "")
-            chunk_str = f'[切片{idx}]\n{file_title}\n{content}\n'
+            # 不再在每个切片前拼接 file_title：file_title 已由 prompt 模板单独提供，
+            # 切片内重复拼接会放大文件名权重，导致 LLM 直接照抄文件名而不提炼正文主题
+            chunk_str = f'[切片{idx}]\n{content}\n'
             # logger.info(f'内容:{chunk_str}')
             if len(content_str) > max_len:
                 logger.warning(f'内容长度超过{max_len}，已截断')
@@ -71,6 +72,10 @@ class NodeItemNameRecognition(NodeBase):
         entity_name = "".join(res.content.split())
         # 统一小写：消除 LLM 大小写不稳定的影响，保证导入与查询向量一致
         entity_name = entity_name.lower()
+        # LLM 可能把 Prompt 里的"返回空字符串"理解为返回文本"空字符串"，
+        # 而非真正的空值；此处统一归一化为空，触发下方的 file_title 兜底
+        if entity_name in ('空字符串', '空', '无', 'none', 'null', 'n/a', '无商品名'):
+            entity_name = ''
         logger.info(f'实体名:{entity_name}')
 
         if not entity_name:
@@ -110,6 +115,12 @@ class NodeItemNameRecognition(NodeBase):
         milvus_client.delete(collection_name=collection_name, filter='entity_name=="$target_name"', filter_params={"$target_name": entity_name})
 
         embedding = get_bge_embedding([entity_name])
+        # 防御：编码结果为空时避免 [0] 下标越界，给出可排查的明确报错
+        if not embedding.get('dense') or not embedding.get('sparse'):
+            logger.error(f'实体名向量化结果为空: entity_name={entity_name}, dense条数={len(embedding.get("dense", []))}, sparse条数={len(embedding.get("sparse", []))}')
+            raise Exception(f'实体名向量化结果为空: {entity_name}')
+        dense_vector = embedding['dense'][0]
+        sparse_vector = embedding['sparse'][0]
         # logger.info(f'embedding:{embedding}')
         result = milvus_client.insert(
             collection_name=collection_name,
@@ -117,8 +128,8 @@ class NodeItemNameRecognition(NodeBase):
                 {
                     'entity_name': entity_name,
                     'file_title': file_title,
-                    'dense_vector': embedding['dense'][0],
-                    'sparse_vector': embedding['sparse'][0]
+                    'dense_vector': dense_vector,
+                    'sparse_vector': sparse_vector
                 }
             ]
         )

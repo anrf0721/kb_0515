@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <button id="btn">点击发请求携带sessionid</button>
+    <input type="text" id="ipt">
+    <pre id="out"></pre>   <!-- 新增：消息显示区域 -->
+
+    <script>
+        const btn = document.getElementById('btn')
+        const out = document.getElementById('out')
+        btn.onclick = async function () {
+            const session_id = document.getElementById('ipt').value
+            // 跨域调用：页面是 file:// 源，接口是 http://127.0.0.1:8000 源，必须写绝对地址
+            const res = await fetch('http://127.0.0.1:8000/sse01?session_id=' + session_id)
+            const data = await res.json()
+            console.log(data)      // JS 里没有 print，调试输出用 console.log
+
+            // 订阅sse：先触发后台任务，再建立长连接接收消息
+            const es = new EventSource('http://127.0.0.1:8000/stream?session_id=' + session_id)
+            es.onmessage = function (event) {
+                console.log(event.data)
+                out.innerText += event.data + '\n'   // 把消息显示到页面上（+ 换行）
+            }
+        }
+    </script>
+
+</body>
+</html>

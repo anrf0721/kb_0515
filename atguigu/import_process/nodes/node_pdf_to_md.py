@@ -19,12 +19,23 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from pypdf import PdfReader, PdfWriter
 
 from atguigu.config.config import MineruConfig
 from atguigu.import_process.base import NodeBase
 from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.json_dumps_tool import *
 from atguigu.tool.logger import *
+
+
+class MineruFailedError(Exception):
+    """MinerU 服务端明确返回 failed（如 retry limit reached）：重试无意义，直接失败穿透轮询"""
+    pass
+
+
+# 大 PDF 拆分页数阈值：整本书级 PDF（数百页）一次性提交 MinerU 云服务会解析失败
+# （服务端重试 5 次后返回 retry limit reached），按此阈值拆分后逐份解析
+SPLIT_PAGE_SIZE = 50
 
 
 class NodePDFToMD(NodeBase):
@@ -104,8 +115,14 @@ class NodePDFToMD(NodeBase):
                 if result.get("code", 1) != 0:
                     logger.error(f"请求数据返回失败,错误信息:{result['msg']}")
                     raise Exception(f"请求数据返回失败,错误信息:{result['msg']}")
-                data = result.get("data", {}).get('extract_result', [])[0]
+                extract_results = result.get("data", {}).get('extract_result', [])
+                if not extract_results:
+                    raise MineruFailedError('extract_result 为空，服务端未返回文件处理记录')
+                data = extract_results[0]
                 logger.info(f'获取文件处理结果:{data}')
+                if data.get('state') == 'failed':
+                    # 服务端已明确失败（如 retry limit reached），轮询永远等不到 done，直接失败
+                    raise MineruFailedError(f"MinerU解析失败: {data.get('err_msg', '')}")
                 if data.get('state') != 'done':
                     logger.info('PDF文件处理中')
                     time.sleep(5)
@@ -114,6 +131,9 @@ class NodePDFToMD(NodeBase):
                 logger.info(f'获取zip文件地址:{zip_url}')
                 break
 
+            except MineruFailedError:
+                # 致命失败直接向上抛，让任务状态变为失败，而不是无限轮询
+                raise
             except Exception as e:
                 logger.error(f'文件处理失败:{e}')
                 time.sleep(5)
@@ -191,19 +211,56 @@ class NodePDFToMD(NodeBase):
             local_dir_obj.mkdir(parents=True, exist_ok=True)
         return local_dir_obj, pdf_path, pdf_path_obj
 
+    def _split_pdf(self, pdf_path_obj: Path, local_dir_obj: Path) -> list[Path]:
+        """页数超过阈值时拆分为多份临时 PDF。返回待解析文件路径列表（未超阈值时只有原文件）。"""
+        reader = PdfReader(str(pdf_path_obj))
+        total_pages = len(reader.pages)
+        if total_pages <= SPLIT_PAGE_SIZE:
+            return [pdf_path_obj]
+        split_paths = []
+        for start in range(0, total_pages, SPLIT_PAGE_SIZE):
+            writer = PdfWriter()
+            for i in range(start, min(start + SPLIT_PAGE_SIZE, total_pages)):
+                writer.add_page(reader.pages[i])
+            part_path = local_dir_obj / f'{pdf_path_obj.stem}_part{len(split_paths) + 1}.pdf'
+            with open(part_path, 'wb') as f:
+                writer.write(f)
+            split_paths.append(part_path)
+        logger.info(f'PDF 共 {total_pages} 页，超过 {SPLIT_PAGE_SIZE} 页阈值，拆分为 {len(split_paths)} 份逐份解析')
+        return split_paths
+
     def process(self, state: ImportGraphState):
         local_dir_obj, pdf_path, pdf_path_obj = self.check_pdf(state)
-        # 上传pdf到mineru
-        batch_id, token = self.upload_pdf(pdf_path, pdf_path_obj)
 
-        zip_url = self.pdf_2_md(batch_id, token)
+        # 大 PDF 拆分：整本数百页一次性提交 MinerU 会解析失败，拆成小份逐份解析后合并
+        parse_paths = self._split_pdf(pdf_path_obj, local_dir_obj)
 
-        # 下载zip文件
-        mp_zip_file_obj = self.download_zip(local_dir_obj, pdf_path_obj, zip_url)
-        # 解压zip文件
+        if len(parse_paths) == 1:
+            # 未超阈值：走原单文件流程
+            batch_id, token = self.upload_pdf(pdf_path, pdf_path_obj)
+            zip_url = self.pdf_2_md(batch_id, token)
+            mp_zip_file_obj = self.download_zip(local_dir_obj, pdf_path_obj, zip_url)
+            md_content, new_md_path = self.extract_zip(local_dir_obj, mp_zip_file_obj, pdf_path_obj)
+            return {'md_path': str(new_md_path), 'md_content': md_content}
 
-        md_content, new_md_path = self.extract_zip(local_dir_obj, mp_zip_file_obj, pdf_path_obj)
+        # 拆分多份：逐份走 上传→解析→下载→解压，最后合并为一个 md
+        md_contents = []
+        for part_path_obj in parse_paths:
+            batch_id, token = self.upload_pdf(str(part_path_obj), part_path_obj)
+            zip_url = self.pdf_2_md(batch_id, token)
+            part_zip_obj = self.download_zip(local_dir_obj, part_path_obj, zip_url)
+            part_content, _ = self.extract_zip(local_dir_obj, part_zip_obj, part_path_obj)
+            md_contents.append(part_content)
+            logger.info(f'第 {len(md_contents)}/{len(parse_paths)} 份解析完成: {part_path_obj.name}')
 
+        md_content = '\n\n'.join(md_contents)
+        new_md_path = local_dir_obj / f'{pdf_path_obj.stem}.md'
+        with open(new_md_path, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        logger.info(f'拆分解析完成，合并 md 保存路径: {new_md_path}')
+        # 清理拆分产生的临时 part PDF，保留合并后的 md
+        for part_path_obj in parse_paths:
+            part_path_obj.unlink(missing_ok=True)
         return {'md_path': str(new_md_path), 'md_content': md_content}
 
 

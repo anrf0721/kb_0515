@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <button id="btn">点我发请求携带 session_id</button>
+    <input type="text" id="ipt">
+    <div id="content"></div>
+
+    <script>
+        const btn = document.getElementById('btn')
+        btn.onclick = async function() {
+            // const session_id = document.getElementById('ipt').value
+            const res = await fetch("http://127.0.0.1:8000/sse02",
+                {method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },   // 关键：告诉服务端 body 是 JSON
+                    body:JSON.stringify({
+                        query:'你是谁?',
+                        session_id : '111'
+                    })
+
+                }
+            )
+            const data = await res.json()
+            console.log(data)
+
+            const es = new EventSource("http://127.0.0.1:8000/stream?session_id=" + session_id)
+            es.onmessage = function(event) {
+                if (event.data !== 'None'){
+                    document.getElementById('content').innerHTML += event.data + '<br>'
+                }else{
+                    es.close()
+                }
+                console.log(event.data)
+            }
+        }
+
+    </script>
+
+</body>
+</html>

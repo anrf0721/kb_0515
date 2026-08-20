@@ -159,6 +159,13 @@ class NodeItemNameConfirm(NodeBase):
                 history_list = get_chat_history_list(session_id, limit=10)
                 for h in history_list:
                     h['_id'] = str(h['_id'])
+        else:
+            # LLM 未提取到任何商品名（非商品类问题），走通用问答路径
+            final_item_names = []
+            answer = ''
+            history_list = get_chat_history_list(session_id, limit=10)
+            for h in history_list:
+                h['_id'] = str(h['_id'])
         return {
             'message_id' : message_id,
             "session_id": session_id,

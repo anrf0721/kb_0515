@@ -92,13 +92,11 @@ class MainGraphRunner:
         else:
             return END
 
-    def run_graph(self,init_state):
-        if not self.graph:
-            self.graph = self.builder.compile()
-        return self.graph.invoke(init_state)
+    def run_graph(self, init_state):
+        return self.create_and_run(init_state)
 
     @classmethod
-    def create_and_run(cls,state):
+    def create_and_run(cls, state):
         if cls._compiled_graph is None:
             cls._compiled_graph = cls().builder.compile()
         return cls._compiled_graph.invoke(state)

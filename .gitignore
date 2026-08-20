@@ -7,8 +7,10 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
-.env/
+.env
 .tmp
+atguigu/web/data/
+atguigu/test_fastapi/*.png
 
 # IDE
 .idea/

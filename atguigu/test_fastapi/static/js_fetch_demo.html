@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<!--
+================================================================
+ 大模型工程师必备：JavaScript + fetch 核心讲解（配合 FastAPI 学习）
+ 用法：由 FastAPI 同源提供：http://127.0.0.1:8000/static/js_fetch_demo.html
+ 原则：代码尽可能少，原理注释尽可能多
+================================================================
+-->
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>JS + fetch 核心讲解</title>
+</head>
+<body>
+  <!-- 界面极简：一个按钮触发请求，一个 pre 显示结果 -->
+  <button id="btn">点击调用 GET 接口</button>
+  <pre id="out">结果会显示在这里</pre>
+
+<script>
+// ============================================================
+// 第一部分：JS 核心语法（只会这些就够调接口了）
+// ============================================================
+
+// 1) 变量：const 不可变 / let 可变
+//    习惯：默认 const，需要重新赋值才用 let
+const BASE = 'http://127.0.0.1:8000';   // 接口地址不会变 → const
+
+// 2) 对象 = Python 的字典（写法只是省了引号）
+//    const user = { id: 5, name: 'ss', age: 55 };
+//    user.id          → 5        （等同 Python 的 user["id"]）
+
+// 3) 函数：箭头函数是主流
+//    const add = (a, b) => a + b;          // 等同 def add(a,b): return a+b
+//    (参数) => 返回值，多行则 (参数) => { ... return ... }
+
+// 4) JSON 互转 —— 最重要的一对函数
+//    JSON.stringify(obj)   = Python json.dumps(obj)  ：对象→字符串（发送前必用）
+//    JSON.parse(str)       = Python json.loads(str)  ：字符串→对象（接收后必用）
+//    原理：HTTP 只能传字符串，JS 对象必须 stringify 才能放进 body
+
+// 5) 模板字符串 = Python f-string
+//    `你好 ${name}`   （注意是反引号，不是单引号）
+
+// 6) async/await：和 Python 完全同构
+//    async 函数 + await，JS 里 await 的对象叫 Promise（= Python 的协程对象）
+//    Promise 不 await 不会执行，await 了才拿到结果 —— 概念零成本迁移
+
+// ============================================================
+// 第二部分：fetch 三件套（调接口的全部）
+// ============================================================
+// 原理：fetch(url, 配置) 返回 Promise；
+//       await Promise → 得到 Response 对象（= Python 的 response）；
+//       res.json() 解析响应体（返回的也是 Promise，必须再 await）；
+//       —— 所以永远是「两个 await」：await fetch(...) + await res.json()
+
+// ① GET（默认方法，第二个参数可省略）
+//    const res  = await fetch('http://127.0.0.1:8000/testpath/1/张三/25');
+//    const data = await res.json();
+
+// ② POST JSON（三要素：method + headers + body）
+//    await fetch(url, {
+//      method: 'POST',
+//      headers: { 'Content-Type': 'application/json' },   // 声明 body 是 JSON
+//      body: JSON.stringify({ id: 5, name: 'ss', age: 55 }),  // 必须是字符串！
+//    });
+
+// ③ POST 文件上传（FormData，自动 multipart，绝不能手动设 Content-Type）
+//    const fd = new FormData();
+//    fd.append('files', 文件对象);   // 字段名必须和服务端参数名一致！
+//    await fetch(url, { method: 'POST', body: fd });
+
+// ============================================================
+// 第三部分：DOM 操作（JS 连接 HTML 的最小单位）
+// ============================================================
+// getElementById('id')  → 按 HTML 里的 id 拿到元素（= Python 的"对象引用"）
+// addEventListener(事件, 函数) → 绑定事件，click 表示点击时执行
+// innerText → 读写元素的文本内容（结果写进页面就靠它）
+
+const btn = document.getElementById('btn');
+const out = document.getElementById('out');
+
+btn.addEventListener('click', async () => {            // 点击时执行这个异步函数
+  const res  = await fetch(`${BASE}/testpath/1/张三/25`);  // 第一个 await
+  const data = await res.json();                           // 第二个 await
+  out.innerText = JSON.stringify(data, null, 2);           // 格式化显示到页面
+});
+
+// ============================================================
+// 第四部分：CORS 跨域（浏览器专属，curl/Postman 没有这个问题）
+// ============================================================
+// 原理：浏览器强制"同源策略"——file:// 或 http://A 页面去请求
+//       http://127.0.0.1:8000 属于"不同源"，浏览器直接拦截，控制台报：
+//       "blocked by CORS policy"
+// 本质：拦的是「浏览器」，不是服务端。服务端收到请求前就被浏览器掐了。
+// 解决：服务端响应时声明"允许跨域"。FastAPI 加中间件（你现有的
+//       fastapi_study.py 里可以加，学习阶段放开全部来源）：
+//
+//   from fastapi.middleware.cors import CORSMiddleware
+//   app.add_middleware(
+//       CORSMiddleware,
+//       allow_origins=['*'],     # 允许所有页面来源
+//       allow_methods=['*'],     # 允许所有 HTTP 方法
+//       allow_headers=['*'],     # 允许所有请求头
+//   )
+//
+// 生产环境会把 '*' 换成具体域名，防止别人网站偷调你的接口。
+
+// ============================================================
+// 第五部分：SSE 流式读取（大模型打字机效果的核心，预告）
+// ============================================================
+// 原理：响应不是一次性到达，而是持续不断。读一块、显示一块：
+//
+//   const res = await fetch(url, { method: 'POST', ... });
+//   const reader = res.body.getReader();        // 拿到流读取器
+//   const decoder = new TextDecoder();          // 字节 → 文本
+//   while (true) {
+//     const { done, value } = await reader.read();  // 读一块
+//     if (done) break;                              // 流结束
+//     out.innerText += decoder.decode(value);       // 立刻上屏
+//   }
+//
+// 后续讲 FastAPI 端 StreamingResponse 时配合这个使用。
+</script>
+</body>
+</html>

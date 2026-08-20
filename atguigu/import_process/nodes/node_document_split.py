@@ -117,12 +117,27 @@ class NodeDocumentSplit(NodeBase):
             else :
                 logger.info(f'段落长度大于{MAX_LENGTH},开始切分:{title}')
 
-            spliter_chunk_list = spliter.split_text(content)
+            # 图片语法保护：直链 URL 200+ 字符（中文文件名 quote 编码膨胀 3 倍），
+            # 而 chunk_size 仅 300，直接细切会把 ![...](url) 拦腰切断，
+            # 检索命中的切片里是截断 URL，前端加载报 NoSuchKey
+            image_pattern = re.compile(r'!\[[^\]]*\]\([^)\s]+\)')
+            image_placeholders = []
+
+            def _protect_image(m):
+                image_placeholders.append(m.group(0))
+                return f'![__IMG_{len(image_placeholders)}__]'
+
+            def _restore_image(text):
+                return re.sub(r'!\[__IMG_(\d+)__\]',
+                              lambda m: image_placeholders[int(m.group(1)) - 1], text)
+
+            content_protected = image_pattern.sub(_protect_image, content)
+            spliter_chunk_list = spliter.split_text(content_protected)
             for idx, chunk in enumerate(spliter_chunk_list):
                 final_section_list.append(
                     {
                     'title' : title,
-                    'content' :title + '\n\n' + chunk,
+                    'content' :title + '\n\n' + _restore_image(chunk),
                     'file_title' : file_title,
                      'part': idx,
                     }

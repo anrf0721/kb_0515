@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<button id="btn">点击我发请求</button>
+<input type="text" id="ipt">
+<div id="content"></div>
+<script>
+    const btn = document.getElementById("btn")
+    const session_id = document.getElementById("ipt")
+    btn.onclick = async function () {
+        const res = await fetch("http://localhost:8000/sse03", {
+            method: 'POST',
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                query: 'hello?',
+                session_id: session_id.value
+            })
+        })
+        const data = await res.json()
+        console.log(data)
+
+        const es = new EventSource(`http://localhost:8000/sse03/${session_id.value}`)
+        // 监听 "message" 事件（因为后端 yield 的是 event: message）
+        es.addEventListener("message", function (e) {
+            console.log(e.data)
+            document.getElementById("content").innerHTML += e.data + "<br/>"
+
+        })
+        es.addEventListener("final", function (e) {
+            console.log(e.data)
+            document.getElementById("content").innerHTML += e.data + "<br/>"
+            es.close()
+        })
+        es.addEventListener("error", function (e) {
+            console.log(e.data)
+            document.getElementById("content").innerHTML += e.data + "<br/>"
+            es.close()
+        })
+    }
+</script>
+
+
+</body>
+</html>

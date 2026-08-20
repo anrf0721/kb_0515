@@ -64,7 +64,7 @@ class QueryMainGraphRunner:
 if __name__ == '__main__':
     runner = QueryMainGraphRunner()
     init_state = {
-        "answer": "haha",
+        "answer": "烫金机咋用",
     }
     result = runner.run(init_state)
     logger.info(json_format(result))

@@ -91,12 +91,27 @@ class NodeImportMilvus(NodeBase):
                 field_name='sparse_vector', index_type='SPARSE_INVERTED_INDEX',
                 metric_type='IP'
             )
-            milvus_client.create_collection(
-                collection_name=collection_name, schema=schema, index_params=index_params
-            )
+            try:
+                milvus_client.create_collection(
+                    collection_name=collection_name, schema=schema, index_params=index_params
+                )
+            except Exception as e:
+                # 并发首建竞争：其他任务可能已创建成功，确认存在则忽略
+                if not milvus_client.has_collection(collection_name):
+                    raise
+                logger.warning(f'collection 已由其他任务创建，跳过建表: {e}')
 
-        # 加载集合并轮询等待就绪（load 是异步的，立即写入会报 Timestamp lag too large）
-        milvus_client.load_collection(collection_name=collection_name)
+        # 加载集合：create_collection 的索引构建是异步的，并发首建场景下
+        # 其他任务可能在索引就绪前 load 而报 no vector index，失败时有限重试
+        for i in range(LOAD_MAX_RETRIES):
+            try:
+                milvus_client.load_collection(collection_name=collection_name)
+                break
+            except Exception as e:
+                if i == LOAD_MAX_RETRIES - 1:
+                    raise
+                logger.warning(f'load_collection 失败（第 {i+1} 次）: {e}，{LOAD_POLL_INTERVAL}s 后重试（索引可能正在异步构建）')
+                time.sleep(LOAD_POLL_INTERVAL)
         _wait_collection_loaded(milvus_client, collection_name)
 
         # 按文件标题删除旧记录，避免重复（参数化防注入：查询逻辑与数据分离）

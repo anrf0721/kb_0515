@@ -33,10 +33,10 @@ def get_mongo_collection():
 
 def get_chat_history_list(session_id,limit=10):
     collection = get_mongo_collection()
-    res = collection.find({'session_id': session_id}).sort([('ts', 1)]).limit(limit)
+    res = collection.find({'session_id': session_id}).sort([('_id', 1)]).limit(limit)
     return list(res)
 
-def add_or_update_history(session_id,role,text,rewritten_query=None,item_names=None,ts=None,message_id=None):
+def add_or_update_history(session_id,role,text,rewritten_query=None,item_names=None,ts=None,message_id=None,image_url=None):
     collection = get_mongo_collection()
     if message_id:
         # 修改操作
@@ -46,6 +46,7 @@ def add_or_update_history(session_id,role,text,rewritten_query=None,item_names=N
             'text': text,
             'rewritten_query': rewritten_query,
             'item_names': item_names,
+            'image_url': image_url,
             'ts': ts or time.time()
         }
         collection.update_one({'_id': message_id}, {'$set': data})
@@ -57,6 +58,7 @@ def add_or_update_history(session_id,role,text,rewritten_query=None,item_names=N
             'text': text,
             'rewritten_query': rewritten_query,
             'item_names': item_names,
+            'image_url': image_url,
             'ts': ts or time.time()
         }
         result = collection.insert_one(data)

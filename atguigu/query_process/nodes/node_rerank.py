@@ -83,7 +83,8 @@ class NodeRerank(NodeBase):
                 final_rerank_chunks = rerank_docs[:use_max_topk]
 
         return {
-            'new_docs' : final_rerank_chunks
+            # 注意：key 必须是 state 里定义的 reranked_docs，否则下游节点拿不到数据
+            'reranked_docs' : final_rerank_chunks
         }
 
 if __name__ == '__main__':

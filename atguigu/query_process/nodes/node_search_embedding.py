@@ -36,25 +36,26 @@ class NodeSearchEmbedding(NodeBase):
             logger.error("用户问题改写为空")
             raise ValueError("用户问题改写为空")
         if not item_names:
-            logger.error("已确认的主体名为空")
-            raise ValueError("已确认的主体名为空")
+            logger.warning("已确认的主体名为空，将不加商品名过滤，全库检索")
 
         embeddings = get_bge_embedding([rewritten_query])
         collection_chunks = MilvusConfig.chunks_collection
         dense_data = embeddings.get('dense')[0]
         sparse_data = embeddings.get('sparse')[0]
 
-        item_names = [
-            item.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
-            for item in item_names
-        ]
-        expr = f'item_name in {json.dumps(item_names)}'
+        kwargs = {}
+        if item_names:
+            item_names = [
+                item.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+                for item in item_names
+            ]
+            kwargs['expr'] = f'item_name in {json.dumps(item_names)}'
         reqs = create_reqs(
             dense_data=[dense_data],
             sparse_data=[sparse_data],
             dense_anns_field='dense_vector',
             sparse_anns_field='sparse_vector',
-            expr=expr,
+            **kwargs,
         )
         res = search_hybrid(
             collection_name=collection_chunks,
