@@ -10,7 +10,7 @@ venv/
 .env
 .tmp
 atguigu/web/data/
-atguigu/test_fastapi/*.png
+atguigu/test_fastapi/
 
 # IDE
 .idea/
