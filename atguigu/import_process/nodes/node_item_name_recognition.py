@@ -4,6 +4,7 @@ date:7/31/2026
 desc:
 """
 import json
+import random
 import time
 from pathlib import Path
 
@@ -37,21 +38,27 @@ class NodeItemNameRecognition(NodeBase):
             logger.error("file_title is empty")
             raise Exception("file_title is empty")
 
-        # 取更多切片，提高品牌名被命中的概率（受 max_len 限制，不会无限膨胀）
-        chunk_top_list = chunks[:20]
+        # 随机采样切片，覆盖全文语义而非仅文章开头（受 max_len 限制，不会无限膨胀）：
+        # 保留前 3 个切片（标题/导语区域，实体识别关键信息），其余切片随机采样补齐；
+        # 以 file_title 为随机种子，保证同一文件多次运行结果可复现
+        head_num = 3
+        sample_num = min(20 - head_num, max(0, len(chunks) - head_num))
+        chunk_top_list = chunks[:head_num] + random.Random(file_title).sample(chunks[head_num:], sample_num)
         max_len = 10000
-        content_str = '\n'
+        chunk_parts = []
+        current_len = 0
         for idx,chunk in enumerate(chunk_top_list,start=1):
             content = chunk.get("content", "")
             # 不再在每个切片前拼接 file_title：file_title 已由 prompt 模板单独提供，
             # 切片内重复拼接会放大文件名权重，导致 LLM 直接照抄文件名而不提炼正文主题
             chunk_str = f'[切片{idx}]\n{content}\n'
             # logger.info(f'内容:{chunk_str}')
-            if len(content_str) > max_len:
+            if current_len + len(chunk_str) > max_len:
                 logger.warning(f'内容长度超过{max_len}，已截断')
                 break
-            content_str += chunk_str
-        content_str = content_str[:max_len]
+            chunk_parts.append(chunk_str)
+            current_len += len(chunk_str)
+        content_str = ''.join(chunk_parts)
 
         # logger.info(f'内容:{content_str}')
 

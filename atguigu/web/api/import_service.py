@@ -3,6 +3,8 @@ author: anrf
 date:8/17/2026
 desc:
 """
+import logging
+import shutil
 from datetime import datetime as dt, timedelta
 import uuid
 from pathlib import Path
@@ -19,6 +21,16 @@ from atguigu.tool.minio_client_tool import get_client
 from atguigu.tool.task_utils import add_running_task, add_done_task, get_task_info, update_task_status, \
     TASK_STATUS_PROCESSING, TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, cleanup_expired_tasks
 
+
+class _FilterStatusPolling(logging.Filter):
+    """屏蔽 /status/ 轮询接口的访问日志：前端每 1.5s 轮询一次会刷屏，其他接口（如 /upload）日志保留"""
+    def filter(self, record):
+        return '/status/' not in record.getMessage()
+
+
+# 模块级注册：uvicorn.run 和命令行 uvicorn 启动都会加载本模块，两种方式均生效
+logging.getLogger('uvicorn.access').addFilter(_FilterStatusPolling())
+
 app = FastAPI(
     title='掌柜智库导入接口服务',
     description='导入各个接口api服务',
@@ -33,6 +45,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def _cleanup_local_files(local_dir: str, local_file_path: str):
+    """任务结束后清理本地工作目录：按文件 stem 精确删除，避免误删同秒并发上传任务的文件"""
+    stem = Path(local_file_path).stem
+    local_dir_obj = Path(local_dir)
+    # 删除产物目录 {stem}/（docx 转换产物 / MinerU 解压产物，含 _new.md）
+    shutil.rmtree(local_dir_obj / stem, ignore_errors=True)
+    # 删除同 stem 的散落文件：原始文件、{stem}.zip、拆分合并的 {stem}.md、拆分残留 part pdf
+    for pattern in (f'{stem}.*', f'{stem}_part*'):
+        for f in local_dir_obj.glob(pattern):
+            try:
+                f.unlink()
+            except OSError as e:
+                logger.warning(f'清理本地文件失败: {f}, 错误: {e}')
+    # 目录为空才删除时间戳目录；非空说明同秒还有其他任务的文件在用，保留
+    try:
+        local_dir_obj.rmdir()
+    except OSError:
+        pass
+
+
 def exec_graph(task_id: str, local_dir: str,local_file_path:str):
     try:
         init_state = {
@@ -46,6 +78,9 @@ def exec_graph(task_id: str, local_dir: str,local_file_path:str):
     except Exception as e:
         logger.error(f"任务执行出错: {e}")
         update_task_status(task_id, TASK_STATUS_FAILED)
+    finally:
+        # 无论成功失败都清理：MinIO 已存原始文件备份/图片/md 文档，本地中间产物不再保留
+        _cleanup_local_files(local_dir, local_file_path)
 
 
 @app.post('/upload')

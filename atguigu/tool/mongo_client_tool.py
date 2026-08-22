@@ -3,6 +3,7 @@ author: anrf
 date:8/10/2026
 desc:
 """
+import threading
 import time
 
 from bson import ObjectId
@@ -12,23 +13,32 @@ from atguigu.config.config import MongoConfig
 from atguigu.tool.logger import logger
 
 mongo_client = None
+# 连接创建锁：懒加载检查-创建非原子，多线程并发首次调用各自建立连接，浪费资源
+_mongo_client_lock = threading.Lock()
+
 def get_mongo_client():
     global mongo_client
     if not mongo_client:
-        mongo_client = MongoClient(MongoConfig.mongo_url)
-        logger.info('MongoDB 连接已建立')
+        with _mongo_client_lock:
+            if not mongo_client:
+                mongo_client = MongoClient(MongoConfig.mongo_url)
+                logger.info('MongoDB 连接已建立')
     return mongo_client
 
 mongo_collection = None
+# collection 懒加载锁：与 mongo_client 是独立全局变量，各自保护
+_mongo_collection_lock = threading.Lock()
+
 def get_mongo_collection():
     global mongo_collection
     mongo_client = get_mongo_client()
     mongo_db = mongo_client[MongoConfig.mongo_db_name]
     if mongo_collection is None:
-        mongo_collection = mongo_db['chat_history']
-        mongo_collection.create_index([('session_id', 1), ('ts', -1)])  # 核心：会话查消息
-        mongo_collection.create_index([('ts', -1)])  # 辅助：时间范围浏览
-    # logger.info(f"集合打印结果: {collection} ")
+        with _mongo_collection_lock:
+            if mongo_collection is None:
+                mongo_collection = mongo_db['chat_history']
+                mongo_collection.create_index([('session_id', 1), ('ts', -1)])  # 核心：会话查消息
+                mongo_collection.create_index([('ts', -1)])  # 辅助：时间范围浏览
     return mongo_collection
 
 def get_chat_history_list(session_id,limit=10):

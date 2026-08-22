@@ -34,7 +34,7 @@ class NodeMDImg(NodeBase):
 
     # 进程级 RPM 滑动窗口：跨请求共享，防止多用户并发时各自独立窗口叠加冲击 API 配额；
     # 复合操作（检查+修改）用锁保护，sleep 在锁外执行避免阻塞其他请求
-    _rpm_dq = deque(maxlen=30)
+    _rpm_dq = deque(maxlen=2999)
     _rpm_lock = threading.Lock()
 
     # 进程级 TPM 滑动窗口：token 数不定无法用 maxlen 容量驱逐，deque 存 (时间戳, token数) 元组，
@@ -93,11 +93,26 @@ class NodeMDImg(NodeBase):
 
         for image_url_context in image_summary_with_context_and_url_list:
             patten = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_url_context['image_name']) + r"\)")
-            md_content = patten.sub(f"![{image_url_context['summary']}]({image_url_context['url']})", md_content)
+            # lambda 替换避免 re.sub 对摘要中的反斜杠做二次转义（如 LLM 输出含 \d 会导致 bad escape）
+            md_content = patten.sub(
+                lambda _m, s=image_url_context['summary'], u=image_url_context['url']:
+                    f"![{s}]({u})",
+                md_content
+            )
             new_md_path = Path(md_path).parent / str(Path(md_path).stem + '_new.md')
             with open(new_md_path, 'w', encoding='utf-8') as f:
                 f.write(md_content)
-        return md_content, new_md_path if image_summary_with_context_and_url_list else Path(md_path)
+
+        final_md_path = new_md_path if image_summary_with_context_and_url_list else Path(md_path)
+        # 最终 MD 上传 MinIO：与图片同目录、按文件 stem 隔离（object 名用原始 stem，
+        # 与本地/前端命名一致）；重传时 fput_object 覆盖同名对象，作为源文档持久化备份
+        md_object_name = f"{file_prefix}/{Path(md_path).stem}.md"
+        minio_client.fput_object(bucket_name=MinIoConfig.minio_bucket_name,
+                                 object_name=md_object_name,
+                                 file_path=str(final_md_path),
+                                 content_type='text/markdown')
+        logger.info(f'MD文件上传成功:{md_object_name}')
+        return md_content, final_md_path
 
     @classmethod
     def image_summary_list(cls, image_name_list: list[str], image_path_obj: str, md_content,md_path):
@@ -133,22 +148,22 @@ class NodeMDImg(NodeBase):
             # 【改动2】去掉内层 for image_context in image_context_list，每张图只调一次 LLM
             # 【改动3】滑动窗口限速逻辑直接处理当前图片，不再遍历历史列表
             # 先清理过期请求
-            with cls._rpm_lock:
-                while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
-                    cls._rpm_dq.popleft()
-                if cls._rpm_dq and len(cls._rpm_dq) == cls._rpm_dq.maxlen:
-                    need_wait_time = 60 - (current_time - cls._rpm_dq[0])
-                else:
-                    need_wait_time = 0
+            # with cls._rpm_lock:
+            while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
+                cls._rpm_dq.popleft()
+            if cls._rpm_dq and len(cls._rpm_dq) == cls._rpm_dq.maxlen:
+                need_wait_time = 60 - (current_time - cls._rpm_dq[0])
+            else:
+                need_wait_time = 0
             if need_wait_time > 0:
-                logger.error(f'图片处理超时,等待时间:{need_wait_time}')
+                logger.warning(f'图片处理超时,等待时间:{need_wait_time}')
                 time.sleep(need_wait_time)
                 current_time = time.time()
-                with cls._rpm_lock:
-                    while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
-                        cls._rpm_dq.popleft()
-            with cls._rpm_lock:
-                cls._rpm_dq.append(current_time)
+                # with cls._rpm_lock:
+                while cls._rpm_dq and current_time - cls._rpm_dq[0] > 60:
+                    cls._rpm_dq.popleft()
+            # with cls._rpm_lock:
+            cls._rpm_dq.append(current_time)
 
             # TPM 限速：锁内清理过期 + 遍历求和判断，超限则锁外 sleep 等待最早一条过期
             with cls._tpm_lock:

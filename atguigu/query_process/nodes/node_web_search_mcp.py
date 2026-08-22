@@ -36,7 +36,7 @@ class NodeWebSearchMcp(NodeBase):
             raise ValueError("用户问题改写为空")
 
         search_result = asyncio.run(self._search(rewritten_query))
-        # logger.info(f"联网搜索结果: {search_result[:300]}...")
+        logger.info(f"联网搜索结果: {search_result[:300]}...")
 
         return {
             "web_search_docs": [

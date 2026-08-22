@@ -54,15 +54,23 @@ class NodeItemNameConfirm(NodeBase):
             raise Exception("原始查询为空")
 
         message_id = add_or_update_history(session_id,'user',original_query)
+        user_message_id = message_id  # 保存用户消息ID，后续 update_history_item_names 只更新当前用户消息
         logger.info(f"会话ID:{session_id},消息ID:{message_id},原始查询:{original_query}")
         # 汇总历史会话消息给到大模型
         history_list = get_chat_history_list(session_id)
-        content = ''
+        content_parts = []
         for history in history_list:
             role = history.get('role','')
             text = history.get('text','')
-            history_content = f"{role}:{text}\n"
-            content += history_content
+            rewritten = history.get('rewritten_query','')
+            # 将上一轮的查询改写也传给 LLM，确保用户确认主题时能带上原始问题上下文
+            # 只展示历史消息的 rewritten_query，跳过当前用户消息自身（text == original_query）
+            if rewritten and text != original_query:
+                history_content = f"{role}:{text}\n[上轮查询改写：{rewritten}]\n"
+            else:
+                history_content = f"{role}:{text}\n"
+            content_parts.append(history_content)
+        content = ''.join(content_parts)
         logger.info(f"历史会话汇总:{content}")
 
         llm = init_chat_model(
@@ -148,13 +156,10 @@ class NodeItemNameConfirm(NodeBase):
                     answer = '无法确定商品名称，请重新描述。'
                 # 回填历史记录列表字段,因为刚刚可能执行了插入数据操作,需要再拿一次历史会话消息
                 if answer:
-                    message_id = add_or_update_history(session_id, 'assistant', answer)
+                    add_or_update_history(session_id, 'assistant', answer)
 
-                history_list = get_chat_history_list(session_id, limit=10)
-                # MongoDB 批量更新（必须用原始 ObjectId）
-                ids = [item.get('_id', '') for item in history_list]
-                if ids:
-                    update_history_item_names(ids, rewritten_query=result.rewritten_query, item_names=final_item_names)
+                # 只更新当前用户消息的 rewritten_query/item_names，不污染历史消息
+                update_history_item_names([user_message_id], rewritten_query=result.rewritten_query, item_names=final_item_names)
                 # 将 _id 转为字符串，避免 JSON 序列化报错❌️
                 history_list = get_chat_history_list(session_id, limit=10)
                 for h in history_list:

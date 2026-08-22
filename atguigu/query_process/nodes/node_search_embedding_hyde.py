@@ -82,7 +82,7 @@ class NodeSearchEmbeddingHyde(NodeBase):
             limit=10,
             output_fields=['id', 'entity_content', 'title','item_name']
         )
-        logger.info(res[0])
+        # logger.info(res[0])
         embeddings_chunks = [
             {
                 **item.get('entity',''),

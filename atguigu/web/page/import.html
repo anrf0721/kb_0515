@@ -385,8 +385,8 @@
 
     <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">☁️</div>
-        <div class="upload-text">点击或拖拽文件到此处 (PDF/MD)</div>
-        <input type="file" id="fileInput" class="file-input"  accept=".pdf,.md">
+        <div class="upload-text">点击或拖拽文件到此处 (PDF/MD/DOCX)</div>
+        <input type="file" id="fileInput" class="file-input"  accept=".pdf,.md,.docx">
     </div>
 
     <div id="fileList" class="file-list">
@@ -449,7 +449,7 @@
     async function uploadFile(file) {
         // === 核心逻辑优化：动态判断总节点数 ===
         const isPDF = file.name.toLowerCase().endsWith('.pdf');
-        // PDF 需要 9 步（含上传），MD 跳过 pdf_to_md 需要 8 步
+        // PDF 需要 8 步（含上传）；MD 和 DOCX（入口转 MD 后同路径）需要 7 步
         const totalNodes = isPDF ? 8 : 7;
 
         const id = 'file-' + Math.random().toString(36).substr(2, 8);

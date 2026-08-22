@@ -81,6 +81,7 @@ class NodeRerank(NodeBase):
                 break
             else:
                 final_rerank_chunks = rerank_docs[:use_max_topk]
+        logger.info(f'final_rerank_chunks: {json_format(final_rerank_chunks)}')
 
         return {
             # 注意：key 必须是 state 里定义的 reranked_docs，否则下游节点拿不到数据

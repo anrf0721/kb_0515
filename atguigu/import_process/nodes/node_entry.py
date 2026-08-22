@@ -7,6 +7,7 @@ from pathlib import Path
 
 from atguigu.import_process.base import NodeBase
 from atguigu.import_process.state import ImportGraphState
+from atguigu.tool.docx_to_md_tool import docx_to_md
 from atguigu.tool.json_dumps_tool import *
 from atguigu.tool.logger import *
 
@@ -46,9 +47,22 @@ class NodeEntry(NodeBase):
                     'pdf_path' : str(local_file_path_obj),
                     'is_pdf_read_enabled' : True
                     }
+        elif suffix.lower() == '.docx':
+            # Word 文档：入口处就地转换为 Markdown（产物结构与 MinerU 对齐：{title}/{title}.md + images/），
+            # 复用 MD 读取路径，下游图片理解/切片/向量化零改动
+            local_dir = state.get('local_dir','') or str(local_file_path_obj.parent)
+            output_dir_obj = Path(local_dir) / file_title
+            md_path_obj = docx_to_md(local_file_path_obj, output_dir_obj)
+            return {'file_title':file_title,
+                    'md_path' : str(md_path_obj),
+                    'is_md_read_enabled' : True
+                    }
+        elif suffix.lower() == '.doc':
+            logger.error('暂不支持旧版Word格式(.doc)，请先在Word中另存为.docx后重试')
+            raise Exception('暂不支持旧版Word格式(.doc)，请先在Word中另存为.docx后重试')
         else:
-            logger.error('不支持的文件格式')
-            raise Exception('不支持的文件格式')
+            logger.error('不支持的文件格式，仅支持 .md / .pdf / .docx')
+            raise Exception('不支持的文件格式，仅支持 .md / .pdf / .docx')
 
 
 if __name__ == '__main__':

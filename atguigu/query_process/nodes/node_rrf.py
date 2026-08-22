@@ -39,7 +39,7 @@ class NodeRrf(NodeBase):
         weight_embedding = [
             (embedding_chunks,1),
             (hyde_embedding_chunks,1),
-            (web_search_docs,0.8)
+            (web_search_docs,1.0)
         ]
         final_chunk_dict = {}
         for chunks, weight in weight_embedding:
@@ -50,13 +50,18 @@ class NodeRrf(NodeBase):
                 chunk_key = chunk.get('entity_content') or chunk.get('id')
                 chunk_score = weight / (idx+self.K)
                 if chunk_key in final_chunk_dict:
-                    final_chunk_dict[chunk_key]['score'] += chunk_score
+                    # 用 max 而非 sum：embedding/hyde 两路召回高度重叠，
+                    # sum 会导致本地 chunk 分数翻倍，挤压 web 结果排名
+                    final_chunk_dict[chunk_key]['score'] = max(final_chunk_dict[chunk_key]['score'], chunk_score)
                 else:
                     chunk['score'] = chunk_score
                     final_chunk_dict[chunk_key] = chunk
         rrf_chunks = sorted(final_chunk_dict.values(), key=lambda x: x['score'], reverse=True)
+        logger.info(f'rrf_chunks: {json_format(rrf_chunks)}')
+        # 固定取 top 20，而非仅 len(embedding_chunks)：web 结果也需要进入 rerank
+        rrf_topk = min(20, len(rrf_chunks))
         return {
-            'rrf_chunks' : rrf_chunks[:len(embedding_chunks)]
+            'rrf_chunks' : rrf_chunks[:rrf_topk]
         }
 
 if __name__ == '__main__':

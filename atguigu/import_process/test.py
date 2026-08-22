@@ -1,6 +1,23 @@
-from utils.embedding_utils import get_bge_m3_ef
+def a(func):
+    print(f"[装饰阶段] a 拿到 → {func.__name__}")
+    def wrap_a():
+        print("  [调用] 进入 a")
+        func()
+        print("  [调用] 离开 a")
+    return wrap_a
 
-model = get_bge_m3_ef()
-result = model.encode_documents(["测试","test"])
+def b(func):
+    print(f"[装饰阶段] b 拿到 → {func.__name__}")
+    def wrap_b():
+        print("  [调用] 进入 b")
+        func()
+        print("  [调用] 离开 b")
+    return wrap_b
 
-print(result)
+@a
+@b
+def f():
+    print("  [调用] 原函数 f 本体")
+
+print("===== 装饰阶段结束，开始调用 f() =====")
+f()
